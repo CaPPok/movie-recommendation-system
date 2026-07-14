@@ -5,6 +5,12 @@
 
 This project implements a movie recommendation system using collaborative filtering techniques. The system is designed to recommend movies to users based on their preferences and the preferences of similar users.
 
+## Content
+1. [Folder Structure](#folder-structure)
+2. [Features](#features)
+3. [Data for training and pretraining](#data-for-training-and-pretraining)
+4. [Interaction Weights](#interaction-weights)
+
 ## Folder Structure
 The project is organized into the following directories:
 
@@ -70,7 +76,8 @@ The project is organized into the following directories:
 > [!TIP]
 > _Source: user interactions data from the system._
 
-## Interaction Weights - converting Interactions into Scores
+## Interaction Weights
+- Converting Interactions into Scores
 
 > [!IMPORTANT]
 > To recommend movies to users correctly, the system needs **User Profile Vectorization + Behavioral Decay**. For each user, they have a profile vector. Instead of storing which movies a user likes, they store which movie characteristics the user prefers.
@@ -91,7 +98,7 @@ Example:
 
 - Each user will be stored as a JSON document containing vectors (dictionaries).
 
-[!WARNING]
+> [!WARNING]
 > Grade Inflation and Oblivion - Time Decay
 
 **Problem:** If a user has been using system for three years, their score for the "Action" genre could reach +50000 points, whereas a newly released movie starts with a score of zero. The model would break down and only recommend older content. Furthermore, people's preferences change over time, for instance, someone might have liked Action movies last year but prefers Romance this year.
