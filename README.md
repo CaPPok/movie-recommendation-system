@@ -103,17 +103,17 @@ Each user will be stored as a JSON document containing vectors.
 
 **Problem:** If a user has been using system for three years, their score for the "Action" genre could reach +50000 points, whereas a newly released movie starts with a score of zero. The model would break down and only recommend older content. Furthermore, people's preferences change over time, for instance, someone might have liked Action movies last year but prefers Romance this year.
 
-**Solution:** Exponential Decay. Instead of simple accumulation (New Score = Old Score + Action), apply the following formula whenever a new interaction occurs: 
+**Solution:** Exponential Decay. Instead of simple accumulation (NewScore = OldScore + InteractionWeight), apply the following formula whenever a new interaction occurs: 
 
-$$ New\_Score = (Old\_Score \times \alpha) + Interaction\_Weight) $$
+$$ NewScore = (OldScore \times \alpha) + InteractionWeight) $$
 
 - $\alpha:$ Time Decay Factor 
 
 **Dot Product Calculation**: Example
-To calculate the affinity score between User 101 and Movie M (Action, Sci-Fi), there is no need to invoke the computationally expensive ALS algorithm. We can simply use a basic dot product calculation:
-- User Vector (Genre only): [Action: 25.5, Sci-Fi: 10.0, Romance: -5.0]
-- Movie M Vector (Genre only): [Action: 1, Sci-Fi: 1, Romance: 0] (1 if the genre is present, 0 otherwise).
+To calculate the affinity score between User X and Movie M (Action, Sci-Fi), there is no need to invoke the computationally expensive ALS algorithm. We can simply use a basic dot product calculation (Genre only):
+- User Vector: [Action: 25.5, Sci-Fi: 10.0, Romance: -5.0]
+- Movie M Vector: [Action: 1, Sci-Fi: 1, Romance: 0]
 
-$$ Match\_Score = (25.5 \times 1) + (10.0 \times 1) + (-5.0 \times 0) = \mathbf{35.5} $$
+$$ MatchScore = (25.5 \times 1) + (10.0 \times 1) + (-5.0 \times 0) = \mathbf{35.5} $$
 
 > _Movies with the highest Match Scores are then returned to the Frontend and displayed in recommendation rows such as "Because you watched..." or "Top Picks for You"._
