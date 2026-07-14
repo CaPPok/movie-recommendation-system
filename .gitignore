@@ -1,0 +1,5 @@
+movies_dataset/*
+!movies_dataset/.gitkeep
+__pycache__/
+models/*
+processed_data/*
