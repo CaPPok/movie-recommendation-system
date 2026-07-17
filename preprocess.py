@@ -2,7 +2,12 @@ import pandas as pd
 import numpy as np
 from scipy.sparse import csr_matrix, save_npz
 import pickle 
-from config import RATING, TRAIN_MATRIX, TEST_MATRIX, MAPPING, MIN_USER_RATING, MIN_MOVIE_RATING, TEST_SIZE_RATIO, RANDOM_STATE 
+
+from config import (
+    RATING, TRAIN_MATRIX, TEST_MATRIX, 
+    MAPPING, MIN_USER_RATING, MIN_MOVIE_RATING,
+    TEST_SIZE_RATIO, RANDOM_STATE
+)
 
 def preprocess(): 
     dtypes = { 'userId': np.int32, 'movieId': np.int32, 'rating': np.float32, } 

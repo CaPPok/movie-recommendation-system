@@ -1,5 +1,7 @@
 movies_dataset/*
 !movies_dataset/.gitkeep
 __pycache__/
+.venv
 models/*
 processed_data/*
+als_model
