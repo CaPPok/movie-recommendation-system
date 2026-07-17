@@ -4,4 +4,3 @@ __pycache__/
 .venv
 models/*
 processed_data/*
-als_model
