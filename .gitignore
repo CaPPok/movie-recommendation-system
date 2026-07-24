@@ -1,6 +1,23 @@
-movies_dataset/*
-!movies_dataset/.gitkeep
+# Local Python environments and caches
+.venv/
 __pycache__/
-.venv
-models/*
-processed_data/*
+*.py[cod]
+.pytest_cache/
+
+# Generated data and model artifacts
+data/interim/
+data/processed/
+data/features/
+data/splits/
+data/serving/
+data/samples/
+artifacts/
+
+# Generated reports
+reports/profiling/
+reports/validation/
+reports/figures/
+
+# Raw source data is local and read-only
+movies_dataset/
+

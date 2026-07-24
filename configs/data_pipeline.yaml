@@ -1,0 +1,74 @@
+project:
+  random_seed: 42
+
+inputs:
+  raw_dir: movies_dataset
+  movies: movies_metadata.csv
+  ratings: ratings.csv
+  links: links.csv
+  credits: credits.csv
+  keywords: keywords.csv
+  ratings_small: ratings_small.csv
+  links_small: links_small.csv
+
+outputs:
+  interim_dir: data/interim
+  processed_dir: data/processed
+  features_dir: data/features
+  splits_dir: data/splits
+  serving_dir: data/serving
+  samples_dir: data/samples
+  artifacts_dir: artifacts/content_based
+  profiling_dir: reports/profiling
+  validation_dir: reports/validation
+
+processing:
+  chunk_size: 1000000
+  sample_rows: 100
+  minimum_rating: 0.5
+  maximum_rating: 5.0
+  minimum_release_year: 1870
+  maximum_release_year: 2030
+  runtime_warning_max_minutes: 600
+
+interactions:
+  signal: rating
+  minimum_user_interactions: 3
+  minimum_movie_interactions: 1
+  duplicate_alias_resolution: latest_timestamp
+
+ranking:
+  threshold_strategy: rating_count_percentile
+  percentile_candidates: [0.80, 0.90, 0.95]
+  selected_percentile: 0.90
+  top_k_all: 100
+  top_k_per_genre: 50
+  minimum_genre_candidates: 20
+
+splits:
+  strategy: chronological_per_user
+  minimum_interactions_for_holdout: 3
+  validation_items_per_user: 1
+  test_items_per_user: 1
+
+content_features:
+  include_overview: true
+  include_keywords: true
+  include_cast: true
+  include_director: true
+  include_genres: true
+  include_companies: true
+  include_countries: true
+  max_cast_members: 5
+  onboarding_movie_weight: 0.70
+  onboarding_genre_weight: 0.30
+  vectorizer:
+    max_features: 30000
+    ngram_range: [1, 2]
+    min_df: 2
+    max_df: 0.98
+    sublinear_tf: true
+
+optional_features:
+  create_users_table: true
+  create_normalized_metadata_tables: true
