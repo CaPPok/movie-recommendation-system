@@ -44,6 +44,14 @@ In loop `for step in range(self.iterations)`:
  
 **Phase 2:** Fix user_factors $U$ and update item_factors $V$
 
+- Similarly, the algorithm fixes the newly updated user matrix. For each item $i$, it isolates only the users who have rated that specific item. It updates the item vector $y_i$ by solving: $$y_i = (\sum_{r_{ui} \in r_{*i}} x_u x_u^T + \lambda I_k)^{-1} \sum_{r_{ui} \in r_{*i}} r_{ui} x_u$$.
+
+The code execution: `np.linalg.solve(U_i.T.dot(U_i) + lambda_I, U_i.T.dot(Ri)).`
+
+### `predict(self, user_id, item_id)`
+
+Once the model is trained, it can predict any missing rating in the matrix.
+- It retrieves the latent factor vector for the specified user_id ($x_u$) and item_id ($y_i$) and computes their dot product.  $$r_{ui} \approx x_u^T y_i$$.  
 
 ## References
 
