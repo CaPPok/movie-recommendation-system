@@ -2,7 +2,7 @@ project:
   random_seed: 42
 
 inputs:
-  raw_dir: movies_dataset
+  raw_dir: data/movies_dataset_raw
   movies: movies_metadata.csv
   ratings: ratings.csv
   links: links.csv
@@ -19,6 +19,7 @@ outputs:
   serving_dir: data/serving
   samples_dir: data/samples
   artifacts_dir: artifacts/content_based
+  eval_dir: artifacts/eval
   profiling_dir: reports/profiling
   validation_dir: reports/validation
 
