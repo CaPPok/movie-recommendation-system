@@ -1,6 +1,6 @@
 # Netflix-style movie recommendation data pipeline
 
-This repository builds and validates a complete local data-processing pipeline from the seven CSV files in `movies_dataset/`. It stops before all cloud work: there are no cloud SDKs, credentials, uploads, resource definitions, or network calls.
+This repository builds and validates a complete local data-processing pipeline from the seven CSV files in `movies_dataset_raw/`. It stops before all cloud work: there are no cloud SDKs, credentials, uploads, resource definitions, or network calls.
 
 The production interaction source is the full `ratings.csv` + `links.csv` pair. The `*_small.csv` files are profiled auxiliary subsets and are never mixed into training data.
 
@@ -75,4 +75,3 @@ Any critical raw or final validation failure raises an error and exits non-zero.
 - Returning user: explicit historical ratings only, represented as `interaction_type = rating`.
 
 See [data pipeline](docs/data_pipeline.md), [recommendation scenarios](docs/recommendation_scenarios.md), [data dictionary](docs/data_dictionary.md), [ID mapping](docs/id_mapping.md), [local serving schema](docs/local_serving_schema.md), and [team handoff](docs/team_handoff.md).
-
