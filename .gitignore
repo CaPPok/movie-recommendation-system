@@ -12,6 +12,7 @@ data/splits/
 data/serving/
 data/samples/
 data/movies_dataset_raw/
+!data/movies_dataset_raw/.gitkeep
 artifacts/
 
 # Generated reports
