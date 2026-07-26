@@ -11,13 +11,10 @@ data/features/
 data/splits/
 data/serving/
 data/samples/
+data/movies_dataset_raw/
 artifacts/
 
 # Generated reports
 reports/profiling/
 reports/validation/
 reports/figures/
-
-# Raw source data is local and read-only
-movies_dataset/
-
