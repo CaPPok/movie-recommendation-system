@@ -1,0 +1,76 @@
+# Model and serving configuration.
+#
+# Every key here is read by code. Keys for components that are not implemented
+# yet are added when that component lands, so the file never advertises a
+# contract the system does not honour.
+
+collaborative:
+  # Rating -> implicit signal conversion. See MODEL_DESIGN_SPEC.md section 7.3.
+  positive_rating_threshold: 4.0
+  negative_rating_threshold: 2.5
+  neutral_rating_policy: exclude      # exclude | low_confidence
+  neutral_confidence_weight: 0.10     # only used when policy is low_confidence
+  alpha: 40.0
+
+  # Items observed too few times produce noise-fitted factors.
+  min_positive_interactions_per_movie: 5
+
+  # Hyperparameters.
+  factors: 64
+  regularization: 0.05
+  iterations: 20
+  random_state: 42
+  use_gpu: false
+
+  # Reproducible fallback subset, used only when full training is too slow.
+  subset:
+    enabled: false
+    user_sample_size: 30000
+    seed: 42
+
+hybrid:
+  method: weighted_rrf
+  rrf_k: 60
+  # Collaborative weight reaches 1.0 at this interaction count; content weight
+  # decays from 1.0 to w_content_floor over the same range.
+  full_cf_confidence_at: 20
+  # Tuned on validation, see reports/validation/hybrid_weight_sweep.md.
+  # Floors of 0.0, 0.1 and 0.25 score the same within noise; 0.25 is chosen
+  # because it gives the most catalogue coverage of the three.
+  w_content_floor: 0.25
+  # Popularity contributed nothing useful in fusion at any floor and is kept
+  # purely as the final backfill tier.
+  w_pop: 0.0
+  # Weight of the "what you engaged with recently" nudge applied after fusion.
+  w_recent: 0.15
+  # Recent interactions are read from the request, capped so a heavy user cannot
+  # make one call arbitrarily expensive.
+  max_recent_interactions: 50
+  max_per_genre_in_top20: 4
+
+similar_movies:
+  top_n: 50
+  pool_size: 200
+
+  # A film with almost no metadata gets a short TF-IDF vector, and a short vector
+  # scores a misleadingly high cosine against anything sharing its few terms.
+  # That is why "The Shawshank Redemption" matched a zero-vote title about a
+  # prison. Reweighting cannot fix it: the candidate should not be eligible at
+  # all, so unrated films are excluded before ranking rather than demoted after.
+  # Cost: neighbours are drawn from the 30% of the catalogue with enough votes.
+  # Every movie still gets neighbours; only the targets are restricted.
+  min_vote_count: 25
+
+  # Secondary ordering signal among eligible candidates.
+  w_quality: 0.25
+  # IMDb-style shrinkage on TMDB votes, so a 10/10 with three votes does not
+  # outrank an 8.5 with thousands.
+  vote_count_percentile: 0.90
+
+candidates:
+  cf_topn: 100
+  content_topn: 100
+  popularity_topn: 50
+  hybrid_keep: 50
+  api_default_limit: 20
+  api_max_limit: 50

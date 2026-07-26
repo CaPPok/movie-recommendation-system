@@ -14,6 +14,9 @@ data/samples/*
 data/movies_dataset_raw/*
 
 artifacts/content_based/*
+artifacts/collaborative/*
+artifacts/eval/*
+artifacts/LATEST.json
 
 # Generated reports
 reports/profiling/

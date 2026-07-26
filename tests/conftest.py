@@ -52,8 +52,9 @@ def _metadata_row(
 @pytest.fixture(scope="session")
 def sample_project(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict]:
     root = tmp_path_factory.mktemp("movie_pipeline")
-    raw = root / "movies_dataset"
-    raw.mkdir()
+    # Must match `inputs.raw_dir` in configs/data_pipeline.yaml.
+    raw = root / "data" / "movies_dataset_raw"
+    raw.mkdir(parents=True)
     rows = [
         _metadata_row(10, "Alpha", ["Drama", "Thriller"]),
         _metadata_row(11, "Beta", ["Animation", "Family"]),
