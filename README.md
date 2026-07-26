@@ -9,8 +9,9 @@ This project implements a hybrid Netflix-style movie recommendation system. It c
 1. [Folder Structure](#folder-structure)
 2. [Features](#features)
 3. [Data for training and pretraining](#data-for-training-and-pretraining)
-4. [Interaction Weights](#interaction-weights)
-5. [Algorithm and Ranking Mechanisms](#algorithm-and-ranking-mechanisms)
+4. [Data Preprocessing Pipeline](#data-preprocessing-pipeline)
+5. [Interaction Weights](#interaction-weights)
+6. [Algorithm and Ranking Mechanisms](#algorithm-and-ranking-mechanisms)
 
 ## Folder Structure
 The project is organized into the following directories:
@@ -95,6 +96,11 @@ MOVIE-RECOMMENDATION-SYSTEM/
 > [!TIP]
 > _Source: user interactions data from the system._
 
+## Data Preprocessing Pipeline
+
+> [!IMPORTANT]
+> Read at: [DATA_PIPELINE.md](DATA_PIPELINE.md)
+
 ## Interaction Weights
 Converting Interactions into Scores
 
@@ -145,7 +151,7 @@ The system employs a 4-layer architecture, combining non-personalized baselines,
     * **Negative Signals** (Rating $\le 2.5$): Completely bypass the ALS model and are reserved strictly for filtering out bad recommendations later.
 
 > [!NOTE]
-> Academic Baseline vs Production Model: The project includes a implementation of the Explicit ALS algorithm in `src/models/als_model/als.py`. However, this implementation assumes a dense matrix representation. Converting the actual dataset's sparse matrix ($270,883 \times 44,577$) into a dense np.ndarray would require approximately 97 GB of memory, and running basic Python loops across hundreds of thousands of users would take dozens of hours. Therefore, `als.py` is strictly maintained as an academic baseline to run on small subsets (e.g., `ratings_small.csv`), while the production system utilizes the highly optimized implicit Python library to handle large-scale sparse matrices efficiently. 
+> Academic Baseline vs Production Model: The project includes a implementation of the Explicit ALS algorithm in `src/models/als_model/als.py` - [als.py](src/models/als_model/als.py) and [ALS.md](src/models/als_model/ALS.md). However, this implementation assumes a dense matrix representation. Converting the actual dataset's sparse matrix ($270,883 \times 44,577$) into a dense np.ndarray would require approximately 97 GB of memory, and running basic Python loops across hundreds of thousands of users would take dozens of hours. Therefore, `als.py` is strictly maintained as an academic baseline to run on small subsets (e.g., `ratings_small.csv`), while the production system utilizes the highly optimized implicit Python library to handle large-scale sparse matrices efficiently. 
 
 ### 4. Hybrid Ranking Layer and Business Rules
 
