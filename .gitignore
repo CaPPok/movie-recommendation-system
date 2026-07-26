@@ -12,7 +12,8 @@ data/splits/*
 data/serving/*
 data/samples/*
 data/movies_dataset_raw/*
-artifacts/
+
+artifacts/content_based/*
 
 # Generated reports
 reports/profiling/
