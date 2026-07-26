@@ -5,17 +5,18 @@ __pycache__/
 .pytest_cache/
 
 # Generated data and model artifacts
-data/interim/
-data/processed/
-data/features/
-data/splits/
-data/serving/
-data/samples/
+data/interim/*
+data/processed/*
+data/features/*
+data/splits/*
+data/serving/*
+data/samples/*
 data/movies_dataset_raw/*
-!data/movies_dataset_raw/.gitkeep
 artifacts/
 
 # Generated reports
 reports/profiling/
 reports/validation/
 reports/figures/
+
+!**/.gitkeep
