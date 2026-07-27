@@ -48,6 +48,29 @@ hybrid:
   max_recent_interactions: 50
   max_per_genre_in_top20: 4
 
+interactions:
+  # Runtime event weights. Only the six types listed in SUPPORTED_EVENT_TYPES are
+  # honoured; anything else is counted as ignored and reported, never silently
+  # scored. Adding a type means updating the data dictionary, DynamoDB schema,
+  # backend API, frontend tracking and validation rules as well.
+  weights:
+    click: 2          # weak: opening a detail page is curiosity, not preference
+    watch: 10         # only counts past watch_progress_threshold
+    complete: 12
+    like: 15
+    dislike: -15
+  # A rating carries its own magnitude, so it is scored from the value rather
+  # than a fixed weight: 5 stars -> +10, 3 stars -> 0, 1 star -> -10.
+  rating_neutral_point: 3.0
+  rating_scale: 5.0
+  watch_progress_threshold: 0.5
+  # Preferences drift. A signal counts half as much after this many days, so a
+  # burst of action films two years ago cannot outweigh last week's romances.
+  half_life_days: 30
+  # Net score at or below this marks the movie as actively unwanted.
+  dislike_score_threshold: -5.0
+  max_recent_events: 200
+
 similar_movies:
   top_n: 50
   pool_size: 200
