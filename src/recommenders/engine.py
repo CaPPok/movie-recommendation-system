@@ -35,6 +35,7 @@ from src.data.config import output_dir, project_path
 from src.features.similarity import SIMILAR_MOVIES_FILE, SimilarMovieLookup
 from src.models.collaborative import CollaborativeRecommender
 from src.models.hybrid_ranking import HybridRanker
+from src.models.interaction_weights import build_interaction_profile
 from src.recommenders.content_based import ContentBasedRecommender
 from src.recommenders.guest import GuestRecommender
 
@@ -108,6 +109,7 @@ class RecommendationEngine:
         self.config = config
         self.model_config = model_config
         self.candidates = model_config["candidates"]
+        self.interactions_config = model_config["interactions"]
 
         self.guest = GuestRecommender(config)
         self.content = ContentBasedRecommender(config)
@@ -208,23 +210,35 @@ class RecommendationEngine:
         return rankings.get(user_id, [])
 
     def _recent_similarity(
-        self, recent_movie_ids: Sequence[int], candidates: Sequence[int]
+        self,
+        recent_movie_ids: Sequence[int],
+        candidates: Sequence[int],
+        weights: Mapping[int, float] | None = None,
     ) -> dict[int, float]:
         """Cosine similarity between the candidates and recently engaged movies.
 
         Computed from the request rather than a stored profile table, so the
         engine has no dependency on a persistence layer the project has not
-        built yet.
+        built yet. When interaction weights are supplied the profile is a
+        weighted average, so a film the user finished pulls harder than one they
+        merely clicked on.
         """
-        rows = [
-            self.content.row_by_movie[movie_id]
+        pairs = [
+            (self.content.row_by_movie[movie_id], float((weights or {}).get(movie_id, 1.0)))
             for movie_id in recent_movie_ids
             if movie_id in self.content.row_by_movie
         ]
-        if not rows or not candidates:
+        pairs = [(row, weight) for row, weight in pairs if weight > 0]
+        if not pairs or not candidates:
             return {}
+        rows = [row for row, _ in pairs]
+        coefficients = np.asarray([weight for _, weight in pairs], dtype="float32")
+        coefficients /= coefficients.sum()
         profile = normalize(
-            sparse.csr_matrix(self.content.matrix[rows].mean(axis=0)), norm="l2"
+            sparse.csr_matrix(
+                self.content.matrix[rows].multiply(coefficients[:, None]).sum(axis=0)
+            ),
+            norm="l2",
         )
         candidate_rows = [
             (movie_id, self.content.row_by_movie[movie_id])
@@ -275,14 +289,24 @@ class RecommendationEngine:
             str(value) for value in (request.get("selected_genres") or [])
         ]
         recent = request.get("recent_interactions") or []
-        recent_movie_ids = _as_int_list(
-            item.get("movie_id") for item in recent if isinstance(item, Mapping)
+        max_events = int(self.interactions_config["max_recent_events"])
+        profile = build_interaction_profile(
+            list(recent)[:max_events], self.interactions_config
         )
         max_recent = int(self.model_config["hybrid"]["max_recent_interactions"])
-        recent_movie_ids = recent_movie_ids[:max_recent]
+        # Movies the user reacted well to drive the content profile; a disliked
+        # film must not seed recommendations for things resembling it.
+        recent_movie_ids = profile.positive_movie_ids(limit=max_recent)
+        recent_weights = profile.normalised_weights()
+        # Every touched movie is still filtered out of the results, positive or
+        # not: showing something they already reacted to is never useful.
+        touched = _as_int_list(
+            item.get("movie_id") for item in recent if isinstance(item, Mapping)
+        )
 
         excluded = set(_as_int_list(request.get("exclude_movie_ids")))
-        excluded.update(recent_movie_ids)
+        excluded.update(touched)
+        excluded.update(profile.disliked)
 
         interaction_count = int(request.get("valid_interaction_count_90d") or 0)
         onboarding_completed = bool(request.get("onboarding_completed"))
@@ -318,6 +342,7 @@ class RecommendationEngine:
             user_id,
             selected_genres,
             recent_movie_ids,
+            recent_weights,
             preferred_genre,
             interaction_count,
             limit,
@@ -426,6 +451,7 @@ class RecommendationEngine:
         user_id: int | None,
         selected_genres: Sequence[str],
         recent_movie_ids: Sequence[int],
+        recent_weights: Mapping[int, float],
         preferred_genre: str | None,
         interaction_count: int,
         limit: int,
@@ -446,7 +472,7 @@ class RecommendationEngine:
         )
 
         pool = list(dict.fromkeys([*collaborative, *content, *popularity]))
-        similarity = self._recent_similarity(recent_movie_ids, pool)
+        similarity = self._recent_similarity(recent_movie_ids, pool, recent_weights)
 
         ranked_items, level, _ = self.hybrid.rank(
             collaborative=collaborative,
