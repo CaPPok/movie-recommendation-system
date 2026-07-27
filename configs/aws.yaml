@@ -1,0 +1,126 @@
+# AWS and retraining configuration.
+#
+# Same rule as configs/model_serving.yaml: every key here is read by code. The
+# repository runs end to end without AWS, so nothing in this file is loaded
+# unless a script that talks to AWS is invoked.
+#
+# Every value can be overridden by an environment variable, because the same
+# code runs on a laptop, inside a SageMaker Processing Job and on EC2, and those
+# three should not need three different YAML files.
+
+aws:
+  # RESOLVED 2026-07-27: Singapore. This supersedes the us-east-1 default in
+  # backend/app/services/dynamodb/user_activity_repository.py and the
+  # ap-southeast-2 in PROJECT_PLAN.md; both have to be updated to match, because
+  # a table in one region and a client pointed at another fails at call time,
+  # and creating it twice costs money twice (MODEL_DESIGN_SPEC.md section 16.9).
+  # Closest region to Vietnam, so it also gives the lowest latency to users.
+  region: ap-southeast-1         # env: AWS_REGION
+  bucket: movie-recommendation-fcaj   # env: MOVIE_REC_BUCKET
+
+  # Prefixes inside the bucket. Layout follows MODEL_DESIGN_SPEC.md section 14.1.
+  prefixes:
+    raw: raw/
+    processed: processed/
+    features: features/
+    splits: splits/
+    serving: serving/
+    artifacts: artifacts/
+    events: events/          # DynamoDB interaction exports, one JSONL per run
+    reports: reports/
+
+# Local directories each prefix maps to. Kept explicit rather than derived from
+# configs/data_pipeline.yaml so a sync can never silently upload the wrong tree.
+sync:
+  pairs:
+    - local: data/processed
+      prefix: processed
+    - local: data/features
+      prefix: features
+    - local: data/splits
+      prefix: splits
+    - local: data/serving
+      prefix: serving
+    - local: artifacts
+      prefix: artifacts
+    - local: reports
+      prefix: reports
+
+dynamodb:
+  interactions_table: Interactions     # env: MOVIE_REC_INTERACTIONS_TABLE
+  # Partition key of the Interactions table per spec section 4.3.
+  partition_key: user_id
+  sort_key: interaction_timestamp#movie_id
+  # A full Scan reads the whole table and is billed for it. Acceptable at demo
+  # scale (a few thousand events); past that, switch the export to a DynamoDB
+  # point-in-time export to S3 and point --events at that prefix instead.
+  export_mode: scan
+  scan_page_size: 1000
+
+sagemaker:
+  # Must be filled before the job can be submitted; the launcher refuses to run
+  # with the placeholder rather than failing halfway through with an AWS error.
+  role_arn: ""                        # env: MOVIE_REC_SAGEMAKER_ROLE
+  base_job_name: movie-rec-retrain
+  # Spec section 4.4 budgets 1-2 USD per run at this size. ALS on the full
+  # 12.6M-nonzero matrix fits in memory here; see spec section 7.4.
+  instance_type: ml.m5.xlarge
+  instance_count: 1
+  volume_size_gb: 60
+  max_runtime_seconds: 14400
+  # Processing Job, never a real-time endpoint: the whole architecture is
+  # batch-first and an always-on endpoint is the one line item that could blow
+  # the budget (spec section 4.4).
+  framework: sklearn
+  framework_version: "1.2-1"
+  python_version: py3
+
+retraining:
+  # How an aggregated event score becomes a training signal.
+  #
+  # build_training_matrix() thresholds on the 0.5-5.0 rating scale, so event
+  # scores have to be projected onto it. Piecewise-linear through three anchors:
+  #   score <= negative_anchor_score -> minimum_rating
+  #   score == 0                     -> neutral_rating
+  #   score >= positive_anchor_score -> maximum_rating
+  # With the default weights that puts a share or a like at 5.0, a completed
+  # watch at ~4.6, a bare click at ~3.3 (neutral, excluded from training) and a
+  # hostile comment at ~1.8 (negative, filtered out of recommendations).
+  event_rating:
+    neutral_rating: 3.0
+    positive_anchor_score: 15.0
+    negative_anchor_score: -15.0
+    minimum_rating: 0.5
+    maximum_rating: 5.0
+
+  # Decay is switched off while building training rows. Decay answers "what does
+  # this user want today", which is a serving question; training wants the whole
+  # observed history weighted the same way every time the job runs. Leaving it
+  # on would make the training set depend on the wall clock, and two runs over
+  # identical data would produce different models.
+  half_life_days: 0
+
+  # A user who both rated a film and interacted with it produces two candidate
+  # rows. The explicit rating wins: it is the signal the model was designed
+  # around and the only one present in the historical data.
+  event_conflict_policy: prefer_rating   # prefer_rating | prefer_event
+
+  evaluation:
+    split: test
+    sample_users: 5000
+    seed: 42
+
+  # A retrained model is not promoted just because it finished. LATEST.json only
+  # moves when the candidate clears every gate below; otherwise the artifact is
+  # kept for inspection and the pointer stays where it was.
+  promotion:
+    metric: hit_rate_at_10
+    # A personalised model that cannot beat "show everyone the same popular
+    # films" has no reason to exist (spec section 15.2).
+    must_beat_popularity: true
+    # Compared against the metric recorded in the currently promoted manifest.
+    # Retraining on fresh data moves this metric around by a few percent run to
+    # run; blocking on any decrease at all would never promote anything.
+    max_relative_regression: 0.05
+    # Below this many scored users the metric is noise, not a measurement.
+    minimum_users_scored: 1000
