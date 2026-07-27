@@ -49,27 +49,69 @@ hybrid:
   max_per_genre_in_top20: 4
 
 interactions:
-  # Runtime event weights. Only the six types listed in SUPPORTED_EVENT_TYPES are
-  # honoured; anything else is counted as ignored and reported, never silently
-  # scored. Adding a type means updating the data dictionary, DynamoDB schema,
-  # backend API, frontend tracking and validation rules as well.
+  # Runtime event weights. Only the eight types listed in SUPPORTED_EVENT_TYPES
+  # are honoured; anything else is counted as ignored and reported, never
+  # silently scored. Adding a type means updating the data dictionary, DynamoDB
+  # schema, backend API, frontend tracking and validation rules as well.
   weights:
     click: 2          # weak: opening a detail page is curiosity, not preference
     watch: 10         # only counts past watch_progress_threshold
     complete: 12
     like: 15
     dislike: -15
+    # Sharing puts the user's own name behind the recommendation, which is the
+    # strongest unprompted endorsement the product can observe. It sits level
+    # with an explicit like rather than above it: people also share films to
+    # mock them, and nothing in the payload tells us which happened.
+    share: 15
   # A rating carries its own magnitude, so it is scored from the value rather
   # than a fixed weight: 5 stars -> +10, 3 stars -> 0, 1 star -> -10.
   rating_neutral_point: 3.0
   rating_scale: 5.0
   watch_progress_threshold: 0.5
+  # A comment has no fixed weight either. Its score is
+  #     comment_engagement_weight + comment_sentiment_scale * sentiment
+  # with sentiment clamped to [-1, 1]: +1 -> 15 (as strong as a like), 0 -> 3
+  # (bothered to write something, said nothing good), -1 -> -9 (nearly a
+  # dislike). Backend may send `value` as a number in [-1, 1] or as one of the
+  # labels positive/neutral/negative.
+  #
+  # There is deliberately NO default sentiment. A comment backend has not
+  # classified does not count at all — it is reported under
+  # ignored_by_reason.missing_sentiment and dropped. Scoring it as mildly
+  # positive would read "worst film I have ever seen" as interest and recommend
+  # more of the same, which is worse than ignoring the comment entirely.
+  # Consequence: until backend supplies sentiment, `comment` contributes
+  # nothing, and that is the intended behaviour rather than a gap to paper over.
+  # How to obtain sentiment: docs/interaction_events_api.md section 1.
+  comment_engagement_weight: 3
+  comment_sentiment_scale: 12
+  # Repeating a deliberate action says little more than doing it once, but an
+  # unbounded sum would let one title crowd out the whole profile — ten shares
+  # of the same film would outweigh finishing fifteen others. Types absent from
+  # this map are never capped. Events arrive newest-first, so the cap keeps the
+  # most recent occurrences.
+  max_events_per_movie:
+    share: 3
+    comment: 5
   # Preferences drift. A signal counts half as much after this many days, so a
   # burst of action films two years ago cannot outweigh last week's romances.
   half_life_days: 30
   # Net score at or below this marks the movie as actively unwanted.
   dislike_score_threshold: -5.0
   max_recent_events: 200
+
+scenario:
+  # Backend decides the scenario (spec section 10.2) and needs the same event
+  # rules the model uses, so they live here and are served back by
+  # `src/recommenders/feedback.py` rather than being reimplemented in the API.
+  min_interactions_for_cf: 5
+  interaction_recency_days: 90
+  # `click` is excluded on purpose: curiosity is not history. `dislike` is
+  # excluded because it tells the system what to remove, not what to model.
+  # `share` and `comment` count — both cost enough effort to be real evidence
+  # that the account is active, whatever their sentiment turns out to be.
+  valid_event_types: [watch, complete, like, rating, share, comment]
 
 similar_movies:
   top_n: 50
