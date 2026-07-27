@@ -1,0 +1,17 @@
+[Unit]
+Description=Weekly movie recommendation retraining
+Documentation=file:/opt/movie-rec/repo/movie-recommendation-system/docs/aws_deployment.md
+
+[Timer]
+# Weekly, not daily. ALS needs enough new feedback for the metrics to move
+# beyond noise, and every run costs an instance-hour; a daily schedule spends
+# seven times as much to promote roughly the same model.
+OnCalendar=Sun 02:00
+# Catch up after the instance was stopped, which it usually is between runs.
+Persistent=true
+# Spread the start so several instances do not hit S3 and DynamoDB together.
+RandomizedDelaySec=15m
+Unit=movie-rec-retrain.service
+
+[Install]
+WantedBy=timers.target

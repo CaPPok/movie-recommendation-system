@@ -1,0 +1,37 @@
+[Unit]
+Description=Movie recommendation retraining run
+Documentation=file:@PROJECT_DIR@/docs/aws_deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@APP_USER@
+WorkingDirectory=@PROJECT_DIR@
+
+# Credentials come from the instance role. Do not put access keys here.
+Environment=AWS_REGION=ap-southeast-1
+Environment=MOVIE_REC_BUCKET=movie-recommendation-fcaj
+# implicit runs its own thread pool; letting BLAS spawn one too oversubscribes
+# the CPU and makes the fit slower, not faster.
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=PYTHONUNBUFFERED=1
+
+# Export yesterday's events, then retrain on them. The export is allowed to fail
+# without taking the retrain with it: no new feedback is a reason to retrain on
+# the existing dataset, not a reason to skip the run.
+ExecStartPre=-@APP_HOME@/venv/bin/python @PROJECT_DIR@/scripts/export_interactions.py --upload
+ExecStart=@APP_HOME@/venv/bin/python @PROJECT_DIR@/retrain.py --pull --push \
+    --events s3://${MOVIE_REC_BUCKET}/events/
+
+# ALS on the full matrix takes a few minutes; the ceiling is for a hung run.
+TimeoutStartSec=4h
+
+# The gate in retrain.py decides whether the new model is promoted, so a
+# completed run is a success even when it keeps the old artifact. Restarting on
+# failure would retrain repeatedly against the same broken input.
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
