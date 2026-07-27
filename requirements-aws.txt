@@ -1,0 +1,13 @@
+# AWS extras. Deliberately separate from requirements.txt: the data pipeline,
+# training, evaluation and serving all run with no AWS account and no boto3
+# installed, and that must stay true so a credential problem can never break a
+# local run.
+#
+#   pip install -r requirements.txt -r requirements-aws.txt
+
+boto3>=1.34,<2
+botocore>=1.34,<2
+
+# Only needed to submit a Processing Job from a laptop. The job itself does not
+# import it — deploy/sagemaker_retrain.py installs boto3 and calls retrain.py.
+sagemaker>=2.220,<3
