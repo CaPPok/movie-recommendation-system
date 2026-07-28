@@ -54,7 +54,24 @@ def install_aws_extras() -> None:
     subprocess.run(command, check=True)
 
 
+def log_environment() -> None:
+    """Record the interpreter the base image actually shipped.
+
+    The container installs `requirements.txt` over whatever Python the framework
+    image provides, and a version mismatch there fails the job minutes after
+    submission with a pip resolution error rather than an obvious one. Printing
+    it first means the log answers the question without a second run.
+    """
+    import platform
+
+    print(
+        f"Python {platform.python_version()} ({platform.platform()})",
+        flush=True,
+    )
+
+
 def main() -> int:
+    log_environment()
     install_aws_extras()
     os.chdir(CODE_DIR)
 

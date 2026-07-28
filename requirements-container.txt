@@ -1,0 +1,24 @@
+# Runtime dependencies installed inside the SageMaker Processing Job container.
+#
+# Deliberately looser than requirements.txt. The local file pins exact versions
+# so a laptop run is reproducible; several of those pins (numpy 2.4, pandas 2.3,
+# scikit-learn 1.8) require Python 3.11 or newer, and the SageMaker base image
+# ships whatever interpreter its framework version was built with. Pinning them
+# in the container turns a Python-version mismatch into a job that dies during
+# pip install, minutes after submission and after the tarball has been uploaded.
+#
+# Lower bounds instead: every version that satisfies them reads the same Parquet
+# files and produces the same ALS factorisation, so the artifact does not depend
+# on which one pip resolves. `implicit` is capped because the 0.7 series is the
+# API `src/models/collaborative.py` is written against.
+#
+# pytest is deliberately absent: the job trains, it does not run the test suite.
+
+pandas>=2.0
+pyarrow>=12
+PyYAML>=6
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.2
+joblib>=1.3
+implicit>=0.7.2,<0.8
