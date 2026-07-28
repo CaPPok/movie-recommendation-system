@@ -72,7 +72,13 @@ sagemaker:
   # batch-first and an always-on endpoint is the one line item that could blow
   # the budget (spec section 4.4).
   framework: sklearn
-  framework_version: "1.2-1"
+  # Newest scikit-learn base image the SDK offers, chosen for its interpreter
+  # rather than its scikit-learn version: the job installs its own dependencies
+  # over the base, so what matters is that the container's Python is new enough
+  # for them. `1.2-1` is a 2023 image and was the previous value here.
+  # `deploy/sagemaker_retrain.py` prints the interpreter it actually got, so the
+  # first real run confirms this rather than leaving it assumed.
+  framework_version: "1.4-2"
   python_version: py3
 
 retraining:
