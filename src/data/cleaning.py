@@ -838,7 +838,10 @@ def _data_dictionary_markdown() -> str:
         ("user_item_interactions", "user_id", "int64", "no", "Returning-user key", "ratings_clean.user_id", "Pass through", "no", "yes"),
         ("user_item_interactions", "movie_id", "int64", "no", "Canonical item key", "ratings_clean.movie_id", "Pass through", "no", "yes"),
         ("user_item_interactions", "interaction_value", "float32", "no", "Observed rating", "ratings_clean.rating", "Rename only", "no", "yes"),
-        ("user_item_interactions", "interaction_type", "string", "no", "Observed signal type", "dataset capability", "Constant rating; no fabricated signals", "no", "yes"),
+        # Kept in step with src/data/feedback_ingest.py, which writes `event`
+        # rows: this table is generated on every pipeline run, so a description
+        # that is only fixed in the .md file is silently reverted the next time.
+        ("user_item_interactions", "interaction_type", "string", "no", "Observed signal type", "dataset capability, feedback ingest", "`rating` from the dataset; `event` for rows derived from production interaction events. Never fabricated.", "no", "yes"),
         ("user_item_interactions", "timestamp", "timestamp[UTC]", "no", "Observed rating time", "ratings_clean.timestamp", "Pass through", "no", "yes"),
         ("interaction splits", "all interaction columns", "canonical", "no", "Chronological train/validation/test partitions", "user_item_interactions", "Latest=test, penultimate=validation for eligible users", "no", "yes"),
         ("top_rated rankings", "ranking_type", "string", "no", "ALL or GENRE ranking", "derived", "Configured scenario label", "yes", "no"),
