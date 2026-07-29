@@ -34,4 +34,8 @@ lifecycle.json
 deploy/sagemaker_endpoint_s3_policy.json
 deploy/sagemaker_retrain_s3_policy.json
 
+# Bien moi truong that; MOVIE_REC_SAGEMAKER_ROLE chua account id.
+.env
+!.env.example
+
 !**/.gitkeep
