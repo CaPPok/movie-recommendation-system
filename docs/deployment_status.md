@@ -1,12 +1,7 @@
 # Hiện trạng triển khai — cập nhật 2026-07-29
 
-Tài liệu này ghi lại những gì đã thực sự chạy trên AWS, khác gì so với kế hoạch
-ban đầu, và ai còn phải làm gì. Mọi con số ở đây lấy từ lần kiểm tra thật trên
-tài khoản, không phải ước lượng.
-
-Đọc `docs/aws_deployment.md` để hiểu thiết kế tổng thể. **Lưu ý: tài liệu đó mô
-tả kiến trúc batch-first không có endpoint, và đã lệch so với hệ thống hiện tại.**
-Mục 2 dưới đây giải thích vì sao.
+Tài liệu này ghi lại những gì đã thực sự chạy trên AWS và ai còn phải làm gì.
+Mọi con số ở đây lấy từ lần kiểm tra thật trên tài khoản, không phải ước lượng.
 
 ---
 
@@ -27,31 +22,34 @@ trên máy cá nhân.
 
 ---
 
-## 2. Thay đổi kiến trúc: có endpoint
+## 2. Kiến trúc
 
-`docs/aws_deployment.md` viết **không dùng real-time endpoint**, vì nó tính tiền
-24/7 và là khoản duy nhất có thể vỡ ngân sách. Thiết kế cũ để engine chạy
-in-process trong backend.
-
-**Quyết định ngày 2026-07-29: dùng endpoint.** Lý do:
-
-* ngân sách còn 198/200 USD và dự án chỉ chạy hơn nửa tháng, nên chi phí endpoint
-  nằm trong tầm;
-* tách ML serving khỏi backend là kiến trúc rõ ràng hơn để trình bày, và là điều
-  phía web đề nghị.
-
-Hệ quả: mục 5, 7.2 và 9.2 của `aws_deployment.md` không còn mô tả đúng hệ thống.
-Hai tài liệu cần được hợp nhất trước khi nộp.
+Theo đúng thiết kế đã thống nhất: model được train ngoài luồng, artifact nằm trên
+S3, và backend chỉ gọi endpoint chứ không train và không tự chạy model.
 
 ```
 Frontend  →  Backend  →  invoke_endpoint  →  movie-rec-endpoint
-                 ↓                                   ↓
-             DynamoDB                       artifact nạp sẵn trong RAM
-          (metadata phim)                    (ALS + content-based)
+                 ↓                                   ↑
+             DynamoDB                          model.tar.gz
+          (metadata phim)                    (S3, nạp lúc khởi động)
 ```
 
-Backend gom context từ DynamoDB, gửi sang endpoint, nhận về danh sách
-`movie_id` + `score`, rồi tự ghép metadata từ bảng `Movies`.
+Luồng một request:
+
+1. Backend gom context của user từ DynamoDB — đã onboarding chưa, bao nhiêu tương
+   tác gần đây, thể loại đã chọn.
+2. Gửi sang endpoint bằng `invoke_endpoint`.
+3. Endpoint trả về danh sách `movie_id` kèm `score` và `reason_code`.
+4. Backend `BatchGetItem` bảng `Movies` để ghép `title`, `poster_path`, rồi trả
+   cho frontend.
+
+Endpoint nạp artifact vào RAM một lần lúc khởi động và trả lời từ bộ nhớ, không
+đọc S3 lại mỗi request. Đo thật: 129–161 ms một lượt.
+
+Model bên trong là **hybrid** — ALS cho user có lịch sử, content-based TF-IDF cho
+user mới, và bảng xếp hạng phổ biến cho khách chưa đăng nhập. Endpoint tự chọn
+nhánh nào dựa trên context backend gửi lên, và báo lại đã chọn nhánh nào qua
+trường `scenario_applied`.
 
 ---
 
@@ -315,10 +313,10 @@ thật — lúc đó client nhận `ReadTimeoutError` chứ không phải lỗi 
 
   Cũng phải ép `user_id` và `movie_id` từ chuỗi sang số.
 
-* **Hợp nhất `aws_deployment.md` với tài liệu này** — hiện hai bên mô tả hai kiến
-  trúc khác nhau.
-* Retrain bằng SageMaker Processing Job: `--dry-run`, smoke test, rồi chạy thật.
-* IAM role cho Processing Job (role endpoint chỉ có quyền đọc).
+* Train lại định kỳ và đưa model mới lên endpoint. Quy trình đã có sẵn ở mục 10;
+  phần chưa làm là tự động hoá nó theo lịch.
+* IAM role cho job train — role endpoint hiện chỉ có quyền đọc, không ghi được
+  artifact mới lên S3.
 
 ### Phần web (Ái)
 
