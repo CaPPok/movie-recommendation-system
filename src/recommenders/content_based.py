@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import joblib
 import numpy as np
 import pandas as pd
 from scipy import sparse
 from sklearn.preprocessing import normalize
 
 from src.data.config import load_config, output_dir
+from src.features.text_vectorizer import load_portable_vectorizer
 from src.recommenders.guest import GuestRecommender
 
 
@@ -33,7 +33,11 @@ class ContentBasedRecommender:
         artifacts_dir = output_dir(config, "artifacts_dir", create=False)
         features_dir = output_dir(config, "features_dir", create=False)
         processed_dir = output_dir(config, "processed_dir", create=False)
-        self.vectorizer = joblib.load(artifacts_dir / "vectorizer.joblib")
+        # Portable files rather than vectorizer.joblib: the pickle only reloads
+        # under a compatible scikit-learn, and this class runs under three
+        # different ones (local, retraining job, inference image). Same numbers
+        # either way -- verified bit-identical, see src/features/text_vectorizer.py.
+        self.vectorizer = load_portable_vectorizer(artifacts_dir)
         self.matrix = sparse.load_npz(artifacts_dir / "movie_matrix.npz").tocsr()
         self.index = pd.read_parquet(artifacts_dir / "movie_index.parquet")
         self.features = pd.read_parquet(

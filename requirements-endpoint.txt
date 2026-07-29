@@ -1,0 +1,27 @@
+# Runtime dependencies installed inside the SageMaker inference container.
+#
+# `implicit` is absent on purpose: serving never fits a model.
+# `src/models/collaborative.py` imports `implicit.als` inside its fit function,
+# not at module scope, so the endpoint loads the factor matrices and never
+# touches the library. Leaving it out removes a compiled dependency from the
+# deployment path, where a build failure means a dead endpoint rather than a
+# failed job someone can resubmit.
+#
+# numpy is listed even though the base image already has one. It has to be
+# resolved in the same pip transaction as scipy and scikit-learn: on the
+# scikit-learn 1.2-1 image, asking only for `numpy>=1.24` upgraded numpy to 2.x
+# underneath the image's numpy-1-era scipy and the container died at import with
+# `ImportError: numpy._core.multiarray failed to import`. Naming all three lets
+# pip pick a set that agrees with itself.
+#
+# Lower bounds rather than pins: the base image's interpreter is whatever the
+# framework version shipped with, and a hard pin turns a version mismatch into a
+# failed deployment instead of a working one.
+
+pandas>=2.0
+pyarrow>=14
+PyYAML>=6
+numpy>=1.26
+scipy>=1.11
+scikit-learn>=1.3
+joblib>=1.3

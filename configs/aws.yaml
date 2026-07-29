@@ -18,16 +18,31 @@ aws:
   region: ap-southeast-1         # env: AWS_REGION
   bucket: movie-recommendation-fcaj   # env: MOVIE_REC_BUCKET
 
-  # Prefixes inside the bucket. Layout follows MODEL_DESIGN_SPEC.md section 14.1.
+  # Prefixes inside the bucket.
+  #
+  # RESOLVED 2026-07-29: everything sits under `movie-recommender/dev/`. That
+  # tree was created on 2026-07-27 by the web side and already holds the
+  # processed dataset, the splits, the serving exports and the content-based
+  # artifacts. The flat layout MODEL_DESIGN_SPEC.md section 14.1 proposed was
+  # never the one on the bucket; pushing to it now would grow a second parallel
+  # copy of a 1.7 GB tree instead of updating the one already in use.
+  #
+  # `events/` and `reports/` do not exist on the bucket yet. The first export and
+  # the first retrain report create them.
   prefixes:
-    raw: raw/
-    processed: processed/
-    features: features/
-    splits: splits/
-    serving: serving/
-    artifacts: artifacts/
-    events: events/          # DynamoDB interaction exports, one JSONL per run
-    reports: reports/
+    raw: movie-recommender/dev/data/raw/
+    processed: movie-recommender/dev/data/processed/
+    features: movie-recommender/dev/data/features/
+    splits: movie-recommender/dev/data/splits/
+    serving: movie-recommender/dev/data/serving/
+    artifacts: movie-recommender/dev/artifacts/
+    events: movie-recommender/dev/events/   # interaction exports, one JSONL per run
+    reports: movie-recommender/dev/reports/
+    # SageMaker model bundles, one `<version>/model.tar.gz` per deployed model.
+    # Kept apart from `artifacts/` because the two have different lifetimes: an
+    # artifact is what training produced, a bundle is what one endpoint is
+    # serving, and rolling the endpoint back must not mean rewriting artifacts.
+    models: movie-recommender/dev/models/
 
 # Local directories each prefix maps to. Kept explicit rather than derived from
 # configs/data_pipeline.yaml so a sync can never silently upload the wrong tree.
@@ -47,10 +62,16 @@ sync:
       prefix: reports
 
 dynamodb:
-  interactions_table: Interactions     # env: MOVIE_REC_INTERACTIONS_TABLE
-  # Partition key of the Interactions table per spec section 4.3.
+  # RESOLVED 2026-07-29 against the live table, not assumed: the web repo names
+  # its tables `movie-rec-dev-*`, and the interaction sort key is
+  # `interaction_key`, not the `interaction_timestamp#movie_id` name spec
+  # section 4.3 proposed. Both confirmed with describe-table.
+  interactions_table: movie-rec-dev-UserInteractions
   partition_key: user_id
-  sort_key: interaction_timestamp#movie_id
+  # Values look like `1997-06-18T03:52:21.000Z#602#rating_<hash>`, so the
+  # timestamp is still the part before the first `#` and _sort_key_timestamp()
+  # in scripts/export_interactions.py keeps working unchanged.
+  sort_key: interaction_key
   # A full Scan reads the whole table and is billed for it. Acceptable at demo
   # scale (a few thousand events); past that, switch the export to a DynamoDB
   # point-in-time export to S3 and point --events at that prefix instead.
@@ -60,6 +81,17 @@ dynamodb:
 sagemaker:
   # Must be filled before the job can be submitted; the launcher refuses to run
   # with the placeholder rather than failing halfway through with an AWS error.
+  #
+  # Left empty on purpose -- the ARN carries the account id, which does not
+  # belong in git. Set MOVIE_REC_SAGEMAKER_ROLE instead.
+  #
+  # Check `aws iam get-role --role-name <name>` for a PermissionsBoundary before
+  # using a role, not just its attached policies. This account's
+  # `SageMakerExecutionRole` looks correct -- AmazonSageMakerFullAccess, right
+  # trust policy -- but carries an AmazonS3FullAccess boundary, which caps it at
+  # S3 only. With it, endpoint creation failed twice with no CloudWatch logs at
+  # all: the role could not pull the container image or create a log group, so
+  # nothing ever ran to report why. Use a role whose PermissionsBoundary is null.
   role_arn: ""                        # env: MOVIE_REC_SAGEMAKER_ROLE
   base_job_name: movie-rec-retrain
   # Spec section 4.4 budgets 1-2 USD per run at this size. ALS on the full
@@ -80,6 +112,36 @@ sagemaker:
   # first real run confirms this rather than leaving it assumed.
   framework_version: "1.4-2"
   python_version: py3
+
+  # Real-time endpoint. Unlike everything else here, this one bills by the hour
+  # from creation until deletion, whether or not anyone calls it -- so the
+  # teardown in `scripts/deploy_endpoint.py --delete` is part of the workflow,
+  # not an afterthought.
+  #
+  # ml.m5.large, not the ml.m5.xlarge above: the Processing Job factorises a
+  # 12.6M-nonzero matrix and needs the memory, while serving looks up one row of
+  # user_factors and takes a dot product against item_factors. Measured locally,
+  # the whole engine loads in ~9 s and answers in under 65 ms; 8 GB is already
+  # generous for a 158 MB bundle. Quota checked 2026-07-29: 4 available.
+  endpoint:
+    name: movie-rec-endpoint
+    instance_type: ml.m5.large
+    instance_count: 1
+    # Not a scikit-learn image, despite this being a scikit-learn model. Every
+    # sklearn image with an `inference` scope tops out at 1.2-1, which ships
+    # Python 3.9, and the serving path calls `zip(..., strict=True)` -- 3.10 and
+    # newer only (src/recommenders/content_based.py, src/recommenders/engine.py).
+    # Deployed on 1.2-1 the container died at import with
+    # `ImportError: numpy._core.multiarray failed to import`, once pip pulled
+    # numpy 2 in under the image's numpy-1-era scipy.
+    #
+    # The pytorch inference images are the ones AWS still builds on a current
+    # interpreter. Nothing here imports torch; the image is used for its Python
+    # 3.11, which is the version every local test ran on. Checked 2026-07-29:
+    # 2.5.1-cpu-py311 resolves in ap-southeast-1.
+    framework: pytorch
+    framework_version: "2.5.1"
+    python_version: py311
 
 retraining:
   # How an aggregated event score becomes a training signal.

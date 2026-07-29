@@ -14,6 +14,7 @@ from scipy import sparse
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from src.data.config import output_dir
+from src.features.text_vectorizer import save_portable_vectorizer
 
 
 def _as_list(value: Any) -> list[str]:
@@ -146,6 +147,13 @@ def build_movie_content_features(config: dict[str, Any]) -> dict[str, Any]:
     temporary_vectorizer = vectorizer_path.with_name(f"{vectorizer_path.name}.tmp")
     joblib.dump(vectorizer, temporary_vectorizer)
     os.replace(temporary_vectorizer, vectorizer_path)
+
+    # The pickle above stays for local inspection, but it is not what serving
+    # reads. It only reloads under a compatible scikit-learn, and this project
+    # spans three versions: 1.8 locally, 1.4 in the retraining Processing Job,
+    # 1.2 in the newest inference image AWS publishes. See
+    # `src/features/text_vectorizer.py`.
+    save_portable_vectorizer(vectorizer, artifacts_dir)
 
     matrix_path = artifacts_dir / "movie_matrix.npz"
     temporary_matrix = artifacts_dir / "movie_matrix.tmp.npz"

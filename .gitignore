@@ -23,4 +23,14 @@ reports/profiling/
 reports/validation/
 reports/figures/
 
+# SageMaker model bundle: ~150 MB rebuilt from artifacts/ on demand
+dist/
+
+# Written once to configure the bucket, kept only for reference
+lifecycle.json
+
+# Filled from deploy/sagemaker_endpoint_s3_policy.example.json. Untracked
+# because the KMS statement carries the account id and the bucket's key id.
+deploy/sagemaker_endpoint_s3_policy.json
+
 !**/.gitkeep
