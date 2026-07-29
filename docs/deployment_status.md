@@ -175,10 +175,23 @@ AWS_DYNAMODB_INTERACTIONS_TABLE=movie-rec-dev-UserInteractions
 AWS_DYNAMODB_RECOMMENDATION_CACHE_TABLE=movie-rec-dev-RecommendationCache
 
 AWS_S3_BUCKET=movie-recommendation-fcaj
+AWS_S3_DATASET_PREFIX=movie-recommender/dev/data/raw/
+AWS_S3_PROCESSED_PREFIX=movie-recommender/dev/data/processed/
+AWS_S3_SERVING_PREFIX=movie-recommender/dev/data/serving/
+AWS_S3_TRAINING_PREFIX=movie-recommender/dev/data/splits/
 AWS_S3_MODEL_PREFIX=movie-recommender/dev/models/
+AWS_S3_OUTPUT_PREFIX=movie-recommender/dev/reports/
 
 JWT_SECRET_KEY=          # tự sinh, tối thiểu 32 byte
 ```
+
+Chỉ `AWS_S3_BUCKET` là bắt buộc — backend hiện không gọi S3, nó chỉ validate tên
+bucket lúc khởi động. Sáu prefix còn lại điền sẵn để cấu hình không phải đoán khi
+có thành phần đọc S3 thật.
+
+`reports/` chưa có object nào; nó xuất hiện sau lần retrain đầu tiên.
+`artifacts/` không có biến tương ứng vì backend không đọc tới — endpoint đã mang
+sẵn bản sao bên trong `model.tar.gz`.
 
 Role hoặc user chạy backend cần thêm quyền `sagemaker:InvokeEndpoint`.
 
