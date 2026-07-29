@@ -7,18 +7,32 @@ Mọi con số ở đây lấy từ lần kiểm tra thật trên tài khoản, 
 
 ## 1. Tóm tắt
 
-Hệ thống gợi ý đã chạy trên AWS. Backend gọi được model qua một SageMaker
-real-time endpoint, và kết quả trả về khớp từng phim, từng điểm số với bản chạy
-trên máy cá nhân.
+Hệ thống gợi ý đã chạy được trên AWS: ngày 2026-07-29 endpoint đã lên
+`InService` và trả về kết quả khớp từng phim, từng điểm số với bản chạy trên máy
+cá nhân.
 
 | | |
 |---|---|
-| Endpoint | `movie-rec-endpoint` — `InService` |
+| Endpoint | `movie-rec-endpoint` — **dựng theo yêu cầu**, xem bên dưới |
 | Region | `ap-southeast-1` |
-| Model đang phục vụ | ALS `v1.0.1` |
+| Model | ALS `v1.0.1`, bundle sẵn trên S3 |
 | Độ trễ đo thật | 129–161 ms mỗi request |
 | Bucket | `movie-recommendation-fcaj` |
 | Bảng DynamoDB | 5 bảng `movie-rec-dev-*`, đã có dữ liệu |
+
+> [!IMPORTANT]
+> **Endpoint không để chạy thường trực.** Nó tính tiền theo giờ kể cả khi không
+> ai gọi, và ở quy mô đồ án đó là khoản duy nhất đáng kể — mọi thứ còn lại cộng
+> lại chưa tới một đô mỗi tháng. Bundle, artifact và cấu hình đều nằm sẵn trên
+> S3, nên dựng lại chỉ mất một lệnh và khoảng 10 phút:
+>
+> ```bash
+> python scripts/deploy_endpoint.py          # dựng
+> python scripts/invoke_endpoint.py --demo   # kiểm tra thật, đừng tin InService
+> python scripts/deploy_endpoint.py --delete # tắt khi xong
+> ```
+>
+> Bật trước buổi demo hoặc trước khi Ái cần test, tắt ngay sau đó.
 
 ---
 
@@ -89,13 +103,30 @@ phải event người dùng thật.
 
 | | |
 |---|---|
-| Endpoint | `movie-rec-endpoint` |
+| Endpoint | `movie-rec-endpoint` — dựng theo yêu cầu |
 | Instance | `ml.m5.large`, 1 máy |
 | Image | `pytorch-inference:2.5.1-cpu-py311` |
 | Execution role | `AmazonSageMaker-ExecutionRole-20260727T132467` |
-| Quota `ml.m5.large` | 4 |
+| Quota endpoint `ml.m5.large` | 4 |
+| Quota processing / training | **0** — đã xin tăng, xem mục 9 |
 
 Vì sao image PyTorch cho một model không có PyTorch: xem mục 6.
+
+Hai policy đã gắn vào execution role, cả hai chỉ giới hạn trong bucket của dự án:
+
+| Policy | Quyền | Dùng cho |
+|---|---|---|
+| `MovieRecBucketRead` | `s3:GetObject`, `s3:ListBucket`, `kms:Decrypt` | endpoint tải `model.tar.gz` |
+| `MovieRecBucketWrite` | `s3:PutObject`, `s3:DeleteObject`, `kms:GenerateDataKey` | job retrain đẩy artifact mới lên |
+
+`kms:*` là bắt buộc chứ không thừa: bucket mã hoá bằng khoá `aws/s3`, và thiếu nó
+thì đọc được vỏ file nhưng không mở được nội dung — xem lỗi 1 ở mục 7.
+
+### Không thuộc phần model
+
+Có một EC2 `t3.micro` đang chạy trong region này. Nó **không phải** của phần
+model — nhiều khả năng là máy chủ backend. Đừng tắt nó khi dọn dẹp chi phí phía
+ML; hỏi phía web trước.
 
 ---
 
@@ -432,26 +463,56 @@ deploy thứ ba — xem lỗi 3 ở mục 7. Nếu nó dưới 3.10 thì job s�
 
 ## 10. Chi phí và dọn dẹp
 
-Endpoint **tính tiền theo giờ kể từ lúc tạo, kể cả khi không ai gọi**. Đây là
-khoản duy nhất trong hệ thống chạy 24/7; mọi thứ còn lại (S3 ~2 GB, DynamoDB
-on-demand) ở mức vài xu tới vài USD mỗi tháng.
+Giá lấy từ AWS Pricing API ngày 2026-07-29 cho `ap-southeast-1`. Giá thay đổi
+theo thời điểm và region; kiểm tra lại trước khi cam kết ngân sách.
 
-Budget alarm `My-200$-budget` đã bật ở mức 200 USD.
+### Endpoint — khoản duy nhất đáng kể
 
-Xem trạng thái:
+`ml.m5.large` hosting: **0,144 USD/giờ**, tính từ lúc tạo tới lúc xoá, không phụ
+thuộc có ai gọi hay không.
+
+| Để chạy | Chi phí |
+|---|---|
+| 1 giờ | 0,14 USD |
+| 1 ngày | 3,46 USD |
+| 1 tuần | 24,19 USD |
+| 30 ngày | 103,68 USD |
+
+Cách dùng quyết định con số cuối cùng nhiều hơn là bản thân giá:
+
+| Cách dùng trong nửa tháng | Chi phí |
+|---|---|
+| Bật liên tục | ~52 USD |
+| Bật 8 giờ mỗi ngày | ~17 USD |
+| Chỉ bật lúc demo, ~2 giờ/ngày | ~4 USD |
+
+### Mọi thứ còn lại
+
+S3 khoảng 2 GB, DynamoDB on-demand, CloudWatch Logs — cộng lại **dưới 1 USD mỗi
+tháng** ở quy mô này. Không đáng để dọn, và xoá thì mất dữ liệu phải nạp lại.
+
+Job retrain tính tiền theo giây và chỉ khi chạy: một lần khoảng 10 phút trên
+`ml.m5.xlarge` rơi vào cỡ vài cent.
+
+### Cảnh báo đã bật
+
+Budget `My-200$-budget`, giới hạn 200 USD/tháng, báo về email của cả nhóm ở các
+mốc thực chi 25, 50, **75**, 100, 150 USD và mốc dự báo 200 USD.
+
+### Lệnh cần nhớ
 
 ```bash
 python scripts/deploy_endpoint.py --status
 ```
 
-Xoá khi kết thúc dự án — một lệnh xoá cả endpoint, endpoint-config và model. Xoá
-thiếu một trong ba thì lần deploy sau sẽ trùng tên và thất bại:
-
 ```bash
 python scripts/deploy_endpoint.py --delete
 ```
 
-**Đặt ngày xoá vào lịch nhóm ngay từ bây giờ.** Kiểm tra hằng tuần:
+`--delete` xoá cả ba: endpoint, endpoint-config và model. Xoá thiếu một trong ba
+thì lần deploy sau trùng tên và thất bại.
+
+Kiểm tra hằng tuần — kết quả nên rỗng trừ lúc đang demo:
 
 ```bash
 aws sagemaker list-endpoints --region ap-southeast-1
