@@ -76,6 +76,15 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--sample-users", type=int, default=None)
     parser.add_argument(
+        "--no-build-bundle",
+        action="store_true",
+        help=(
+            "Skip packaging the promoted artifact for the endpoint. Only useful "
+            "for a training-only experiment; without the bundle the endpoint "
+            "cannot serve what LATEST.json now points at."
+        ),
+    )
+    parser.add_argument(
         "--wait",
         action="store_true",
         help="Block until the job finishes and stream its status.",
@@ -164,6 +173,11 @@ def build_job_arguments(arguments: argparse.Namespace) -> list[str]:
         job_arguments.extend(["--sample-users", str(arguments.sample_users)])
     if arguments.force_promote:
         job_arguments.append("--force-promote")
+    if not arguments.no_build_bundle:
+        # Default on: a promotion that does not reach the endpoint changes
+        # nothing a user can see, and the job is the only place with the new
+        # artifacts already on local disk.
+        job_arguments.append("--build-bundle")
     return job_arguments
 
 

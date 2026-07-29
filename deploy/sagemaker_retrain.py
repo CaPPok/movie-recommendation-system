@@ -16,10 +16,14 @@ Two things only this layer handles:
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+# Consumed here rather than forwarded: retrain.py knows nothing about serving.
+BUILD_BUNDLE_FLAG = "--build-bundle"
 
 # The code directory SageMaker unpacks source_dir into. Falls back to this
 # file's parent so the script can also be run by hand on EC2 for debugging.
@@ -70,6 +74,36 @@ def log_environment() -> None:
     )
 
 
+def promoted_version() -> str | None:
+    """Which artifact LATEST.json currently points at, or None if unreadable."""
+    pointer = CODE_DIR / "artifacts" / "LATEST.json"
+    if not pointer.exists():
+        return None
+    try:
+        return json.loads(pointer.read_text(encoding="utf-8")).get("collaborative")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def build_model_bundle(version: str) -> int:
+    """Package the promoted artifact for serving and upload it.
+
+    Done inside the job because this is the only machine that has the new
+    artifacts on disk. Building it later from a laptop would mean pulling ~180 MB
+    back down first, and would leave a window where LATEST.json advertises a
+    version no bundle exists for.
+    """
+    command = [
+        sys.executable,
+        str(CODE_DIR / "scripts" / "build_model_bundle.py"),
+        "--als-version",
+        version,
+        "--upload",
+    ]
+    print(f"Đóng gói bundle cho {version}: {' '.join(command)}", flush=True)
+    return subprocess.run(command, check=False).returncode
+
+
 def main() -> int:
     log_environment()
     install_aws_extras()
@@ -77,10 +111,48 @@ def main() -> int:
 
     import retrain
 
-    arguments = sys.argv[1:]
+    arguments = [item for item in sys.argv[1:] if item != BUILD_BUNDLE_FLAG]
+    wants_bundle = BUILD_BUNDLE_FLAG in sys.argv[1:]
+
+    before = promoted_version()
     print(f"Chạy retrain.py {' '.join(arguments)}", flush=True)
     print(f"Thư mục làm việc: {CODE_DIR}", flush=True)
-    return retrain.main(arguments)
+    status = retrain.main(arguments)
+    if status != 0 or not wants_bundle:
+        return status
+
+    after = promoted_version()
+    if after is None:
+        print("Không đọc được LATEST.json; bỏ qua bước đóng gói.", flush=True)
+        return status
+    if after == before:
+        # The promotion gate blocked this candidate. That is the gate working,
+        # not a failure -- the endpoint keeps serving what it already serves, so
+        # there is nothing new to package.
+        print(
+            f"Cổng kiểm duyệt giữ nguyên {before}; không cần bundle mới.",
+            flush=True,
+        )
+        return status
+
+    print(f"Đã thăng cấp {before} -> {after}.", flush=True)
+    bundle_status = build_model_bundle(after)
+    if bundle_status != 0:
+        print(
+            "Đóng gói bundle thất bại. Artifact đã lên S3 và LATEST.json đã đổi, "
+            "nhưng endpoint chưa có bản mới. Chạy tay: "
+            f"python scripts/build_model_bundle.py --als-version {after} --upload",
+            file=sys.stderr,
+            flush=True,
+        )
+        return bundle_status
+
+    print(
+        "\nBundle đã lên S3. Cập nhật endpoint bằng:\n"
+        f"  python scripts/deploy_endpoint.py --model-version {after}",
+        flush=True,
+    )
+    return status
 
 
 if __name__ == "__main__":

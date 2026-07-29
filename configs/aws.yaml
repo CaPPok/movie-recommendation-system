@@ -78,6 +78,13 @@ dynamodb:
   export_mode: scan
   scan_page_size: 1000
 
+  # Backend stores a watch as a progress ratio in one `watch` record, while the
+  # model scores `watch` and `complete` as two different signals worth different
+  # amounts. The split has to happen somewhere, and here is the only place that
+  # sees both conventions. 0.95 rather than 1.0 because a player that stops on
+  # the last frame of credits still reports slightly under 1.
+  watch_complete_threshold: 0.95
+
 sagemaker:
   # Must be filled before the job can be submitted; the launcher refuses to run
   # with the placeholder rather than failing halfway through with an AWS error.

@@ -199,7 +199,7 @@ Role hoặc user chạy backend cần thêm quyền `sagemaker:InvokeEndpoint`.
 
 ## 6. Thay đổi trong repo ML
 
-Nhánh `feat/sagemaker-endpoint`, commit `e1036fc`.
+Nhánh `feat/sagemaker-endpoint`.
 
 ### File mới
 
@@ -208,19 +208,23 @@ Nhánh `feat/sagemaker-endpoint`, commit `e1036fc`.
 | `src/features/text_vectorizer.py` | lưu/nạp vectorizer ở định dạng không phụ thuộc phiên bản |
 | `deploy/recommendation_handler.py` | handler 4 hàm cho endpoint |
 | `scripts/build_model_bundle.py` | đóng gói `model.tar.gz` |
-| `scripts/deploy_endpoint.py` | tạo / xem trạng thái / xoá endpoint |
+| `scripts/deploy_endpoint.py` | tạo / xem trạng thái / xoá / cập nhật endpoint |
 | `scripts/invoke_endpoint.py` | gọi thử endpoint |
 | `scripts/convert_vectorizer.py` | chuyển artifact cũ sang định dạng mới |
 | `requirements-endpoint.txt` | thư viện cài trong container serving |
-| `deploy/sagemaker_endpoint_s3_policy.example.json` | mẫu IAM policy |
+| `tests/test_export_translation.py` | khoá bảng quy đổi event backend → model |
+| `deploy/*_policy.example.json` | mẫu IAM policy cho endpoint và cho job retrain |
 
 ### File sửa
 
 * `configs/aws.yaml` — prefix S3 khớp cây thật trên bucket, tên bảng
-  `movie-rec-dev-UserInteractions`, sort key `interaction_key`, thêm khối
-  `sagemaker.endpoint`
+  `movie-rec-dev-UserInteractions`, sort key `interaction_key`, ngưỡng
+  `watch_complete_threshold`, thêm khối `sagemaker.endpoint`
 * `src/features/content.py` — ghi thêm vectorizer dạng phổ thông
 * `src/recommenders/content_based.py` — đọc dạng phổ thông thay vì pickle
+* `scripts/export_interactions.py` — quy đổi schema backend sang event của model
+* `deploy/sagemaker_retrain.py` — đóng gói bundle sau khi thăng cấp
+* `scripts/sagemaker_retrain_job.py` — mặc định bật `--build-bundle`
 
 ### Vì sao bỏ pickle của vectorizer
 
@@ -326,10 +330,8 @@ thật — lúc đó client nhận `ReadTimeoutError` chứ không phải lỗi 
 
   Cũng phải ép `user_id` và `movie_id` từ chuỗi sang số.
 
-* Train lại định kỳ và đưa model mới lên endpoint. Quy trình đã có sẵn ở mục 10;
-  phần chưa làm là tự động hoá nó theo lịch.
-* IAM role cho job train — role endpoint hiện chỉ có quyền đọc, không ghi được
-  artifact mới lên S3.
+* Chờ AWS duyệt quota để chạy được job retrain — xem mục 9.
+* Đặt lịch chạy tự động sau khi đã chạy tay thành công ít nhất một lần.
 
 ### Phần web (Ái)
 
@@ -344,7 +346,91 @@ thật — lúc đó client nhận `ReadTimeoutError` chứ không phải lỗi 
 
 ---
 
-## 9. Chi phí và dọn dẹp
+## 9. Vòng lặp retrain
+
+Train lần đầu chạy ở máy cá nhân — ALS mất 31 giây, không có lý do trả tiền cho
+việc đó. **Train lại định kỳ thì chạy trên AWS**, vì nó phải chạy được khi không
+ai ngồi ở máy.
+
+```
+DynamoDB UserInteractions
+      ↓  scripts/export_interactions.py --upload
+S3 events/
+      ↓  scripts/sagemaker_retrain_job.py --version vX.Y.Z --events s3://.../events/
+SageMaker Processing Job
+      ├─ nạp event, dựng lại split, train ALS
+      ├─ đánh giá và chạy cổng kiểm duyệt
+      ├─ đạt  → đẩy artifact + LATEST.json lên S3, rồi đóng gói model.tar.gz
+      └─ không đạt → giữ nguyên LATEST.json, job vẫn kết thúc thành công
+      ↓
+python scripts/deploy_endpoint.py     ← cập nhật endpoint tại chỗ
+```
+
+Bước cuối là thủ công có chủ đích: model mới thay model đang phục vụ người dùng
+thật, nên có một người bấm nút.
+
+### Cổng kiểm duyệt
+
+Retrain chạy theo lịch nghĩa là không ai xem lại từng lần chạy. Ba điều kiện
+trong `configs/aws.yaml` khối `retraining.promotion`, mỗi điều kiện chỉ có quyền
+**chặn**:
+
+| Điều kiện | Ý nghĩa |
+|---|---|
+| tối thiểu 1.000 user được chấm | dưới mức đó chỉ số là nhiễu, không phải phép đo |
+| thắng baseline phổ biến | model cá nhân hoá không thắng nổi "ai cũng xem phim hot" thì không đáng phục vụ |
+| không tụt quá 5% | dung sai, không phải yêu cầu lần nào cũng phải tốt hơn |
+
+Không đạt thì `LATEST.json` giữ nguyên, artifact mới vẫn lưu để xem xét, và job
+vẫn kết thúc **thành công**. Cổng chặn là cổng làm đúng việc, không phải sự cố.
+Job cũng bỏ qua luôn bước đóng gói, vì endpoint không có gì mới để phục vụ.
+
+### Quy đổi event
+
+Backend ghi bộ ba `(interaction_type, interaction_action, interaction_value)`;
+model chấm điểm theo tám loại event phẳng. `scripts/export_interactions.py` quy
+đổi, và `tests/test_export_translation.py` khoá bảng ánh xạ lại:
+
+| Backend | → model |
+|---|---|
+| `click` / `share`, `record`, `1` | `click` / `share` |
+| `watch`, `record`, `< 0.95` | `watch`, kèm tỉ lệ đã xem |
+| `watch`, `record`, `≥ 0.95` | `complete` |
+| `rating`, `set`, `0.5–5.0` | `rating`, kèm số sao |
+| `reaction`, `set`, `1` / `-1` | `like` / `dislike` |
+| bất kỳ, `clear`, `0` | bỏ — người dùng gỡ đánh giá, không phải tín hiệu âm |
+
+`comment` là loại duy nhất model hỗ trợ mà backend chưa sinh ra.
+
+Có một lỗi im lặng ở đây đáng biết: đọc sai tên trường thì mọi dòng xuất ra có
+`event_type: null`, file vẫn được ghi, và retrain **chạy trên dữ liệu rỗng mà
+không báo lỗi**. Đó là lý do bảng ánh xạ có test riêng.
+
+### Đang chờ: quota
+
+Tài khoản hiện có quota **0** cho mọi loại máy chạy Processing Job và Training
+Job — chỉ endpoint là chạy được. Đã gửi yêu cầu tăng lên 2 cho
+`ml.m5.large` và `ml.m5.xlarge` ngày 2026-07-29, trạng thái `PENDING`.
+
+```bash
+aws service-quotas list-requested-service-quota-change-history \
+  --service-code sagemaker --region ap-southeast-1
+```
+
+Khi quota về, chạy thử bằng máy nhỏ trước:
+
+```bash
+python scripts/sagemaker_retrain_job.py --version v1.1.0-smoke --instance-type ml.m5.large --wait
+```
+
+Dòng log đầu tiên in ra phiên bản Python của container. Đây là thứ duy nhất
+không xác minh được từ máy local, và cũng chính là thứ đã làm endpoint chết ở lần
+deploy thứ ba — xem lỗi 3 ở mục 7. Nếu nó dưới 3.10 thì job sẽ hỏng ở
+`zip(..., strict=True)`, và phải đổi image giống như đã làm với endpoint.
+
+---
+
+## 10. Chi phí và dọn dẹp
 
 Endpoint **tính tiền theo giờ kể từ lúc tạo, kể cả khi không ai gọi**. Đây là
 khoản duy nhất trong hệ thống chạy 24/7; mọi thứ còn lại (S3 ~2 GB, DynamoDB
@@ -373,7 +459,7 @@ aws sagemaker list-endpoints --region ap-southeast-1
 
 ---
 
-## 10. Chạy lại từ đầu
+## 11. Chạy lại từ đầu
 
 Khi cần dựng lại endpoint, ví dụ sau một lần retrain:
 

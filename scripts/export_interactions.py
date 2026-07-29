@@ -87,6 +87,82 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _as_int(value: Any) -> int | None:
+    """Backend stores ids as DynamoDB strings; the model indexes them as ints."""
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def translate_event(
+    item: dict[str, Any], watch_complete_threshold: float
+) -> tuple[str | None, float | None]:
+    """Map one backend interaction record onto the model's event vocabulary.
+
+    Backend writes a triple -- `interaction_type`, `interaction_action`,
+    `interaction_value` -- verified against `backend/app/schemas/interaction.py`
+    and the live table on 2026-07-29. The model instead scores eight flat event
+    types. Seven of them are recoverable here; `comment` has no backend
+    equivalent yet and simply never appears.
+
+        click    record  1.0        -> click
+        share    record  1.0        -> share
+        watch    record  0.0-1.0    -> watch, or complete past the threshold
+        rating   set     0.5-5.0    -> rating
+        reaction set     1 / -1     -> like / dislike
+        *        clear   0          -> dropped
+
+    A `clear` is a user undoing a rating or a reaction. It is not a negative
+    signal and it is not a positive one, so it produces no training row rather
+    than a zero-valued one, which `build_training_matrix` would read as a very
+    low rating.
+
+    Records already written in the model's own vocabulary pass through
+    untouched, so an exporter pointed at a table populated by some other
+    producer still works.
+    """
+    event_type = item.get("event_type")
+    if event_type:
+        return str(event_type).strip().lower(), item.get("value")
+
+    interaction_type = str(item.get("interaction_type") or "").strip().lower()
+    action = str(item.get("interaction_action") or "").strip().lower()
+    value = item.get("interaction_value")
+
+    if action == "clear":
+        return None, None
+
+    if interaction_type in {"click", "share"}:
+        return interaction_type, 1.0
+
+    if interaction_type == "watch":
+        if value is None:
+            return None, None
+        progress = float(value)
+        if progress >= watch_complete_threshold:
+            return "complete", 1.0
+        return "watch", progress
+
+    if interaction_type == "rating":
+        if value is None:
+            return None, None
+        return "rating", float(value)
+
+    if interaction_type == "reaction":
+        if value is None:
+            return None, None
+        # Backend encodes the direction in the value, not the action; see
+        # `interaction_service.py`, which reads back a reaction the same way.
+        return ("like", 1.0) if float(value) == 1 else ("dislike", -1.0)
+
+    # Unrecognised: hand it on unchanged so the counter downstream reports it
+    # instead of this function hiding a producer the model has not been told about.
+    return (interaction_type or None), value
+
+
 def _sort_key_timestamp(item: dict[str, Any], sort_key: str) -> str | None:
     """Recover the timestamp from the composite sort key when it is missing.
 
@@ -101,7 +177,11 @@ def _sort_key_timestamp(item: dict[str, Any], sort_key: str) -> str | None:
 
 
 def scan_events(
-    table: Any, sort_key: str, page_size: int, limit: int
+    table: Any,
+    sort_key: str,
+    page_size: int,
+    limit: int,
+    watch_complete_threshold: float,
 ) -> Iterator[dict[str, Any]]:
     arguments: dict[str, Any] = {"Limit": page_size}
     seen = 0
@@ -110,14 +190,15 @@ def scan_events(
         for item in response.get("Items", []):
             item = {key: _plain(value) for key, value in item.items()}
             timestamp = item.get("timestamp") or _sort_key_timestamp(item, sort_key)
+            event_type, value = translate_event(item, watch_complete_threshold)
             yield {
-                "user_id": item.get("user_id"),
-                "movie_id": item.get("movie_id"),
-                "event_type": item.get("event_type"),
-                # `value` carries watch progress, star rating or comment
-                # sentiment depending on the type; see
+                "user_id": _as_int(item.get("user_id")),
+                "movie_id": _as_int(item.get("movie_id")),
+                "event_type": event_type,
+                # `value` carries watch progress, star rating or reaction
+                # direction depending on the type; see
                 # docs/interaction_events_api.md.
-                "value": item.get("value"),
+                "value": value,
                 "timestamp": timestamp,
             }
             seen += 1
@@ -178,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     written = 0
     skipped_stale = 0
     skipped_unusable = 0
+    skipped_cleared = 0
     unsupported: set[str] = set()
     with destination.open("w", encoding="utf-8", newline="\n") as handle:
         for event in scan_events(
@@ -185,9 +267,15 @@ def main(argv: list[str] | None = None) -> int:
             str(settings["sort_key"]),
             int(settings["scan_page_size"]),
             arguments.limit,
+            float(settings.get("watch_complete_threshold", 0.95)),
         ):
             if event["user_id"] is None or event["movie_id"] is None:
                 skipped_unusable += 1
+                continue
+            if event["event_type"] is None:
+                # A cleared rating or reaction. Dropped on purpose, and counted
+                # separately from malformed records so the two never look alike.
+                skipped_cleared += 1
                 continue
             event_type = str(event.get("event_type") or "").strip().lower()
             if event_type not in SUPPORTED_EVENT_TYPES:
@@ -216,6 +304,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {skipped_stale:,} event cũ hơn --since, đã bỏ.", flush=True)
     if skipped_unusable:
         print(f"  {skipped_unusable:,} event thiếu user_id/movie_id, đã bỏ.", flush=True)
+    if skipped_cleared:
+        print(
+            f"  {skipped_cleared:,} event là thao tác gỡ rating/reaction, đã bỏ.",
+            flush=True,
+        )
     if unsupported:
         print(
             "  Event type model chưa hỗ trợ (vẫn xuất ra để đối chiếu): "

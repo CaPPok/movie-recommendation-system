@@ -91,13 +91,37 @@ def _use_utf8_console() -> None:
             reconfigure(encoding="utf-8", errors="replace")
 
 
-def resolve_model_version(root: Path, requested: str | None) -> str:
+def resolve_model_version(
+    root: Path, aws_config: dict[str, Any], requested: str | None
+) -> str:
+    """Decide which artifact version the endpoint should serve.
+
+    S3 first, local file second. Retraining runs in the cloud and moves
+    LATEST.json there, so the copy on a laptop is stale as soon as a job
+    promotes anything -- deploying from it would quietly roll the endpoint back
+    to an older model.
+    """
     if requested:
         return requested
+
+    from src.aws import s3_sync
+
+    location = s3_sync.location_for(aws_config, "artifacts")
+    key = f"{location.prefix.rstrip('/')}/LATEST.json"
+    try:
+        s3 = s3_sync.client(aws_config)
+        body = s3.get_object(Bucket=location.bucket, Key=key)["Body"].read()
+        version = json.loads(body.decode("utf-8")).get("collaborative")
+        if version:
+            print(f"LATEST.json trên S3 trỏ tới {version}.")
+            return str(version)
+    except Exception as error:  # noqa: BLE001 - any S3 failure falls back to local
+        print(f"Không đọc được s3://{location.bucket}/{key} ({error}); dùng bản local.")
+
     pointer = root / "artifacts" / "LATEST.json"
     if not pointer.exists():
         raise FileNotFoundError(
-            "Thiếu artifacts/LATEST.json; truyền --model-version để chỉ định."
+            "Không có LATEST.json trên S3 lẫn ở local; truyền --model-version."
         )
     version = json.loads(pointer.read_text(encoding="utf-8")).get("collaborative")
     if not version:
@@ -233,7 +257,9 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.delete:
         return delete_endpoint(aws_config, endpoint_name)
 
-    model_version = resolve_model_version(REPOSITORY_ROOT, arguments.model_version)
+    model_version = resolve_model_version(
+        REPOSITORY_ROOT, aws_config, arguments.model_version
+    )
     instance_type = arguments.instance_type or str(endpoint_settings["instance_type"])
     model_data = (
         f"s3://{bucket}/{aws_config['aws']['prefixes']['models']}"
