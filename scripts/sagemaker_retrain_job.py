@@ -57,6 +57,12 @@ SOURCE_INCLUDES = (
 CONTAINER_REQUIREMENTS = "requirements-container.txt"
 EXCLUDED_DIRECTORIES = frozenset({"__pycache__", ".pytest_cache", ".git"})
 
+# Everything the SageMaker SDK uploads on its own goes here rather than to the
+# bucket root. The prefix is not in configs/aws.yaml because nothing reads these
+# objects back — they exist for the duration of a job and are the SDK's business,
+# not the pipeline's.
+JOB_SOURCE_PREFIX = "training/jobs"
+
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -240,7 +246,14 @@ def main(argv: list[str] | None = None) -> int:
             )
             raise SystemExit(2) from error
 
-        session = sagemaker.Session(default_bucket=bucket)
+        # `default_bucket_prefix` keeps the SDK's own uploads — the source
+        # tarball and the generated runproc.sh — under one directory. Without it
+        # every submission writes `<job_name>/source/` to the bucket root, so the
+        # root fills up with one directory per run alongside the real data.
+        session = sagemaker.Session(
+            default_bucket=bucket,
+            default_bucket_prefix=JOB_SOURCE_PREFIX,
+        )
         processor = FrameworkProcessor(
             estimator_cls=SKLearn,
             framework_version=str(settings["framework_version"]),

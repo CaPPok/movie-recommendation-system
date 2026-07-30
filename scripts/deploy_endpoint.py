@@ -261,10 +261,14 @@ def main(argv: list[str] | None = None) -> int:
         REPOSITORY_ROOT, aws_config, arguments.model_version
     )
     instance_type = arguments.instance_type or str(endpoint_settings["instance_type"])
-    model_data = (
-        f"s3://{bucket}/{aws_config['aws']['prefixes']['models']}"
-        f"{model_version}/model.tar.gz"
-    )
+    version_prefix = f"{aws_config['aws']['prefixes']['models']}{model_version}/"
+    model_data = f"s3://{bucket}/{version_prefix}model.tar.gz"
+    # Where the SDK puts `sourcedir.tar.gz`. Without this it derives its own
+    # location from the model name and writes to the bucket root, leaving a
+    # `movie-rec-model-<version>-<timestamp>/` directory behind on every deploy.
+    # Pointing it at the version directory keeps the bundle and the code that
+    # serves it in one place, which is also what a rollback needs.
+    code_location = f"s3://{bucket}/{version_prefix}"
     model_name = f"movie-rec-model-{model_version.replace('.', '-')}-" + (
         f"{datetime.now(timezone.utc):%Y%m%d-%H%M%S}"
     )
@@ -277,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
             "model_name": model_name,
             "region": region,
             "model_data": model_data,
+            "code_location": code_location,
             "instance_type": instance_type,
             "instance_count": int(endpoint_settings["instance_count"]),
             "framework": (
@@ -321,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
             role=role,
             entry_point=HANDLER_NAME,
             source_dir=str(bundle_root),
+            code_location=code_location,
             framework_version=str(endpoint_settings["framework_version"]),
             py_version=str(endpoint_settings["python_version"]),
             name=model_name,
