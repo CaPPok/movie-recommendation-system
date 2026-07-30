@@ -12,6 +12,9 @@ data/splits/*
 data/serving/*
 data/samples/*
 data/movies_dataset_raw/*
+# Interaction exports scanned out of DynamoDB, one file per run. Belongs on S3
+# under the `events` prefix, not in git.
+data/events/*
 
 artifacts/content_based/*
 artifacts/collaborative/*

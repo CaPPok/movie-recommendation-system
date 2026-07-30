@@ -1,0 +1,320 @@
+================================================================================
+CAU TRUC S3 VA CONG DUNG TUNG FILE
+Bucket: movie-recommendation-fcaj   |   Region: ap-southeast-1
+Do ngay 2026-07-30  --  75 object, 2.0 GiB
+================================================================================
+
+Cay duoc to chuc theo GIAI DOAN VONG DOI ML, khong theo module:
+
+    datasets/     du lieu tho va da xu ly
+    training/     3 tap train / validation / test
+    models/       artifact da huan luyen + con tro phien ban
+    inference/    bang tra cuu engine doc luc tra request
+    evaluation/   bao cao JSON cua pipeline va retrain
+    logs/         log chay
+
+Anh xa tu thu muc local sang prefix nam o configs/aws.yaml
+    - khoi aws.prefixes   (prefix nao ung voi ten gi)
+    - khoi sync.pairs     (thu muc local nao day len prefix nao)
+Day len : python scripts/aws_sync.py push
+Keo ve  : python scripts/aws_sync.py pull
+
+
+================================================================================
+CAY THU MUC
+================================================================================
+
+movie-recommendation-fcaj/
+|
++-- datasets/
+|   |
+|   +-- raw/                                    CSV goc tu Kaggle
+|   |   +-- ratings.csv                         676.7 MiB
+|   |   +-- credits.csv                         181.1 MiB
+|   |   +-- movies_metadata.csv                  32.8 MiB
+|   |   +-- keywords.csv                          5.9 MiB
+|   |   +-- links.csv                           965.9 KiB
+|   |
+|   +-- processed/                              bang da lam sach
+|   |   +-- user_item_interactions.parquet      222.8 MiB
+|   |   +-- ratings_clean.parquet               222.5 MiB
+|   |   +-- movie_content_features.parquet       19.2 MiB
+|   |   +-- movies_clean.parquet                 14.1 MiB
+|   |   +-- movie_credits_clean.parquet           6.7 MiB
+|   |   +-- users_clean.parquet                   6.3 MiB
+|   |   +-- id_mapping_clean.parquet            917.8 KiB
+|   |   +-- movie_companies_clean.parquet       908.7 KiB
+|   |   +-- movie_keywords_clean.parquet        698.6 KiB
+|   |   +-- movie_rating_stats.parquet          614.6 KiB
+|   |   +-- movie_genres_clean.parquet          389.8 KiB
+|   |   +-- movie_countries_clean.parquet       327.7 KiB
+|   |
+|   +-- serving/                                export DynamoDB cua PHIA WEB
+|   |   +-- users.jsonl                         161.5 MiB
+|   |   +-- movies.jsonl                         36.6 MiB
+|   |   +-- user_interactions.jsonl               2.3 MiB
+|   |   +-- popular_movies.jsonl                  2.5 KiB
+|   |   +-- recommendation_cache.jsonl              0 Bytes
+|   |
+|   +-- exports/                                event xuat ra de retrain
+|       +-- 2026-07-30.jsonl                   1009.3 KiB
+|
++-- training/                                   3 tap chia theo thoi gian
+|   +-- interactions_train.parquet              219.7 MiB
+|   +-- interactions_test.parquet                 4.8 MiB
+|   +-- interactions_validation.parquet           4.8 MiB
+|
++-- models/                                     artifact da huan luyen
+|   +-- LATEST.json                                77 Bytes
+|   |
+|   +-- collaborative/
+|   |   +-- v1.0.0/
+|   |   |   +-- user_factors.npy                 64.1 MiB
+|   |   |   +-- item_factors.npy                  4.3 MiB
+|   |   |   +-- user_index.parquet                2.5 MiB
+|   |   |   +-- movie_index.parquet             205.3 KiB
+|   |   |   +-- manifest.json                     1.6 KiB
+|   |   |   +-- config.json                       1.5 KiB
+|   |   +-- v1.0.1/                             (cung 6 file nhu tren)
+|   |
+|   +-- content_based/
+|   |   +-- movie_matrix.npz                     17.3 MiB
+|   |   +-- similar_movies_top50.parquet         14.4 MiB
+|   |   +-- vectorizer.joblib                     1.1 MiB
+|   |   +-- vectorizer_vocabulary.json          624.8 KiB
+|   |   +-- movie_index.parquet                 531.7 KiB
+|   |   +-- vectorizer_idf.npy                  117.3 KiB
+|   |   +-- vectorizer_params.json                269 Bytes
+|   |   +-- .gitkeep                                0 Bytes   << rac, nen xoa
+|   |
+|   +-- eval/
+|       +-- popularity_baseline_train.parquet   156.7 KiB
+|
++-- inference/                                  bang tra cuu luc phuc vu
+|   +-- movies_serving.jsonl                     29.2 MiB
+|   +-- movies_serving.parquet                   12.7 MiB
+|   +-- popular_movies.jsonl                     27.3 KiB
+|   +-- top_rated_by_genre.parquet               28.1 KiB
+|   +-- top_rated_all.parquet                     7.8 KiB
+|
++-- evaluation/                                 bao cao (chi con .json)
+|   +-- validation/
+|   |   +-- final_validation.json                13.9 KiB
+|   |   +-- determinism_summary.json              7.4 KiB
+|   |   +-- retrain_report.json                   3.8 KiB
+|   |   +-- cleaning_summary.json                 3.4 KiB
+|   |   +-- raw_validation.json                   3.2 KiB
+|   |   +-- model_evaluation.json                 2.7 KiB
+|   |   +-- feature_build_summary.json            2.0 KiB
+|   |   +-- split_summary.json                    1.4 KiB
+|   |   +-- interactions_summary.json             928 Bytes
+|   |   +-- serving_export_summary.json           445 Bytes
+|   |   +-- similar_movies_summary.json           326 Bytes
+|   |   +-- retrain_history/
+|   |       +-- v1.0.1.json                       3.8 KiB
+|   |       +-- v1.0.1-test.json                  444 Bytes
+|   |       +-- v-check.json                      440 Bytes
+|   +-- profiling/
+|       +-- raw_profile.json                     43.1 KiB
+|
++-- logs/
+    +-- determinism_run.stdout.log                210 Bytes
+    +-- determinism_run.stderr.log                  0 Bytes
+
+
+================================================================================
+CONG DUNG TUNG FILE
+================================================================================
+
+--------------------------------------------------------------------------------
+datasets/raw/   --  CSV GOC TU KAGGLE (bo The Movies Dataset)
+--------------------------------------------------------------------------------
+Khong co gi sau buoc lam sach doc toi day. Giu lai chi de luu vet va de chay
+lai pipeline tu dau khi can.
+
+ratings.csv               26.024.289 rating MovieLens. TOAN BO tin hieu hanh vi
+                          cua he thong. Day la nguon diem xep hang, KHONG phai
+                          diem TMDB.
+credits.csv               Dien vien va dao dien tu TMDB, nguon cho dac trung
+                          noi dung.
+movies_metadata.csv       Metadata TMDB: title, overview, poster_path, genres,
+                          vote_average, vote_count.
+keywords.csv              Tu khoa noi dung TMDB, dua vao TF-IDF.
+links.csv                 CAU NOI MovieLens movieId  <->  TMDB tmdbId.
+                          Day la ly do movie_id toan he thong la TMDB ID trong
+                          khi diem so lai den tu rating MovieLens.
+
+Thieu links_small.csv va ratings_small.csv so voi ban local. Hai file do chi
+dung de chay thu src/models/als_model/als.py (ban ALS tu cai, ma tran dense),
+khong can tren cloud.
+
+
+--------------------------------------------------------------------------------
+datasets/processed/   --  BANG DA LAM SACH
+--------------------------------------------------------------------------------
+Dau ra cua Phase C va D trong pipeline. Chin bang dau la data/processed o local,
+ba bang cuoi la data/features -- hai thu muc local dung chung mot prefix de khop
+bo cuc bucket.
+
+ratings_clean.parquet         25.981.442 rating sau lam sach va anh xa ID.
+user_item_interactions.parquet Bang tuong tac dang dai, nguon de chia
+                              train/validation/test.
+movie_content_features.parquet Chuoi text da ghep (overview + keywords + 5 dien
+                              vien + dao dien + genres + cong ty + quoc gia)
+                              de dua vao TF-IDF.
+movies_clean.parquet          Catalogue 45.430 phim chuan hoa. Bang phim goc.
+movie_credits_clean.parquet   Dien vien / dao dien da chuan hoa.
+users_clean.parquet           270.883 user kem interaction_count va moc thoi
+                              gian dau/cuoi.
+id_mapping_clean.parquet      45.460 dong anh xa MovieLens -> TMDB, de truy vet.
+movie_companies_clean.parquet Cong ty san xuat.
+movie_keywords_clean.parquet  Tu khoa, bang chuan hoa.
+movie_rating_stats.parquet    So luot va diem trung binh moi phim.
+                              NGUON TINH BANG XEP HANG GUEST.
+movie_genres_clean.parquet    The loai. Dung cho tran da dang trong hybrid
+                              (toi da 4 phim cung the loai trong top 20).
+movie_countries_clean.parquet Quoc gia san xuat.
+
+
+--------------------------------------------------------------------------------
+datasets/serving/   --  EXPORT DYNAMODB CUA PHIA WEB
+--------------------------------------------------------------------------------
+KHONG PHAI san pham cua repo ML. Moi file la mot bang DynamoDB, dat ten theo
+bang chu khong theo thu pipeline sinh ra. Repo ML khong doc va khong ghi thu
+muc nay.
+
+users.jsonl                   -> bang Users
+movies.jsonl                  -> bang Movies
+user_interactions.jsonl       -> bang UserInteractions
+popular_movies.jsonl          -> bang PopularMovies
+recommendation_cache.jsonl    -> bang RecommendationCache (chua co du lieu)
+
+
+--------------------------------------------------------------------------------
+datasets/exports/   --  EVENT XUAT RA DE RETRAIN
+--------------------------------------------------------------------------------
+2026-07-30.jsonl          9.160 event quet tu bang movie-rec-dev-UserInteractions.
+                          Moi lan chay sinh mot file theo ngay.
+                          Sinh ra bang: python scripts/export_interactions.py --upload
+                          La dau vao cua: python retrain.py --events <s3-uri>
+
+
+--------------------------------------------------------------------------------
+training/   --  BA TAP CHIA THEO THOI GIAN
+--------------------------------------------------------------------------------
+Chia THEO THOI GIAN, TUNG USER MOT: phim cuoi cung lam test, ap chot lam
+validation. Khong chia ngau nhien -- lam vay model se hoc tu tuong lai de du
+doan qua khu, va chi so danh gia se dep gia tao.
+
+interactions_train.parquet      25.457.092 dong. ALS HOC TU DAY.
+interactions_validation.parquet 262.175 dong. Do sieu tham so.
+interactions_test.parquet       262.175 dong. Cham diem cuoi + cong thang cap.
+
+
+--------------------------------------------------------------------------------
+models/   --  ARTIFACT DA HUAN LUYEN
+--------------------------------------------------------------------------------
+LATEST.json               77 byte, nhung la file QUAN TRONG NHAT thu muc nay.
+                          Con tro phien ban dang phuc vu. Doi model = sua mot
+                          dong JSON, khong deploy lai code.
+
+models/collaborative/<version>/   -- ALS
+Moi phien ban la mot thu muc doc lap, KHONG BAO GIO ghi de ban cu.
+
+  user_factors.npy        Ma tran 262.571 x 64. Vector an cua tung user.
+  item_factors.npy        Ma tran 17.608 x 64. Vector an cua tung phim.
+  user_index.parquet      row_index -> user_id.
+                          THIEU FILE NAY THI FACTOR VO NGHIA.
+  movie_index.parquet     row_index -> movie_id.
+                          Lech index se tra ra PHIM KHAC ma khong bao loi.
+  manifest.json           Git commit, sieu tham so, thong ke du lieu, va metrics
+                          do evaluate.py ghi nguoc vao.
+                          CONG THANG CAP DOC FILE NAY.
+  config.json             Cau hinh dung luc train, de tai lap.
+
+models/content_based/   -- TF-IDF
+
+  movie_matrix.npz            Ma tran TF-IDF thua 45.430 x 30.000.
+  similar_movies_top50.parquet 2.271.378 dong. Bang 50 phim tuong tu moi phim,
+                              phuc vu hang "Vi ban da xem X".
+  vectorizer.joblib           Vectorizer scikit-learn da fit.
+  vectorizer_vocabulary.json  Tu vung tach rieng. Cho phep nap lai MA KHONG CAN
+                              scikit-learn -- dung trong container endpoint.
+  movie_index.parquet         row_index -> movie_id cua ma tran TF-IDF.
+  vectorizer_idf.npy          Trong so IDF tach rieng, di kem ban nap khong can
+                              sklearn.
+  vectorizer_params.json      Tham so vectorizer (ngram, min_df, max_df...).
+  .gitkeep                    RAC -- file giu cho cua git bi day len nham.
+
+models/eval/
+
+  popularity_baseline_train.parquet
+                          Baseline "ai cung xem phim hot". Moc ma model ca nhan
+                          hoa BUOC PHAI VUOT moi duoc thang cap.
+
+
+--------------------------------------------------------------------------------
+inference/   --  BANG TRA CUU LUC PHUC VU
+--------------------------------------------------------------------------------
+Nhung gi engine doc de tra loi mot request. Nap mot lan luc khoi dong roi giu
+trong RAM, khong doc lai S3 moi request.
+
+movies_serving.jsonl        Catalogue hien thi dang JSONL, de nap vao DynamoDB
+                            bang Movies.
+movies_serving.parquet      Cung du lieu dang cot. Engine doc de kiem tra
+                            movie_id co trong catalogue truoc khi tra ve.
+popular_movies.jsonl        21 ban ghi (ranking_type, genre) -- khop dung khoa
+                            chinh bang PopularMovies.
+top_rated_by_genre.parquet  Top 50 moi the loai. GuestRecommender DOC TRUC TIEP.
+top_rated_all.parquet       Top 100 toan cuc.  GuestRecommender DOC TRUC TIEP.
+
+
+--------------------------------------------------------------------------------
+evaluation/   --  BAO CAO
+--------------------------------------------------------------------------------
+Chi con ban .json. Ban .md song song da xoa khoi bucket ngay 2026-07-30, van
+con trong reports/ o local.
+
+validation/final_validation.json      Ket qua bo rule kiem dinh cuoi pipeline.
+validation/determinism_summary.json   So hash 32 artifact qua hai lan chay --
+                                      bang chung pipeline tai lap duoc.
+validation/model_evaluation.json      So sanh 4 model: popularity, ALS, content,
+                                      hybrid.
+validation/retrain_report.json        Lan retrain gan nhat co thang cap khong,
+                                      va vi sao.
+validation/retrain_history/*.json     Chi so theo tung phien ban, de biet chat
+                                      luong tut tu luc nao.
+validation/split_summary.json         Thong ke chia train/validation/test.
+validation/cleaning_summary.json      So dong bi loai o buoc lam sach va ly do.
+validation/interactions_summary.json  Thong ke bang tuong tac, moc thoi gian.
+validation/serving_export_summary.json So ban ghi tung file serving.
+validation/similar_movies_summary.json Thong ke bang phim tuong tu.
+validation/feature_build_summary.json  Thong ke buoc dung dac trung.
+validation/raw_validation.json        Kiem dinh du lieu tho truoc khi lam sach.
+profiling/raw_profile.json            Ho so CSV tho: schema, null, kieu du lieu.
+
+
+--------------------------------------------------------------------------------
+logs/
+--------------------------------------------------------------------------------
+determinism_run.stdout.log  Output lan chay kiem tra tai lap.
+determinism_run.stderr.log  Loi lan chay do (0 byte = khong co loi).
+
+
+================================================================================
+BA DIEM CAN DON
+================================================================================
+
+1. models/content_based/.gitkeep  (0 byte)
+   File giu cho cua git bi day len nham. Khong co tac dung gi tren S3.
+
+2. Bon object 0 byte ten rong o cac prefix:
+   datasets/exports/, evaluation/, inference/, models/, training/
+   Marker thu muc do lan tao cay thu cong de lai. Vo hai nhung gay nhieu khi
+   liet ke.
+
+3. datasets/processed/ ganh ca hai vai.
+   Local co data/processed va data/features rieng nhung cung tro vao mot prefix.
+   push khong sao; pull thi moi thu muc local nhan du 12 file, nen job retrain
+   tai 242 MB bang dac trung HAI LAN. Khong hong -- moi cho doc file theo ten --
+   chi cham hon.

@@ -20,29 +20,42 @@ aws:
 
   # Prefixes inside the bucket.
   #
-  # RESOLVED 2026-07-29: everything sits under `movie-recommender/dev/`. That
-  # tree was created on 2026-07-27 by the web side and already holds the
-  # processed dataset, the splits, the serving exports and the content-based
-  # artifacts. The flat layout MODEL_DESIGN_SPEC.md section 14.1 proposed was
-  # never the one on the bucket; pushing to it now would grow a second parallel
-  # copy of a 1.7 GB tree instead of updating the one already in use.
+  # RESOLVED 2026-07-30 by listing the bucket rather than assuming: the tree is
+  # organised by lifecycle stage at the root — `datasets/`, `training/`,
+  # `models/`, `evaluation/`, `inference/`, `logs/`. An earlier revision of this
+  # file pointed everything at `movie-recommender/dev/`, which does not exist on
+  # the bucket; `push` would have grown a second parallel copy of a 1 GB tree
+  # and `pull` would have found nothing and trained on an empty dataset.
   #
-  # `events/` and `reports/` do not exist on the bucket yet. The first export and
-  # the first retrain report create them.
+  # `datasets/raw|processed|serving` and `logs/` already hold data uploaded by
+  # the web side. The rest are empty directory markers waiting for their first
+  # write, which is what the mapping below fills.
   prefixes:
-    raw: movie-recommender/dev/data/raw/
-    processed: movie-recommender/dev/data/processed/
-    features: movie-recommender/dev/data/features/
-    splits: movie-recommender/dev/data/splits/
-    serving: movie-recommender/dev/data/serving/
-    artifacts: movie-recommender/dev/artifacts/
-    events: movie-recommender/dev/events/   # interaction exports, one JSONL per run
-    reports: movie-recommender/dev/reports/
+    raw: datasets/raw/
+    processed: datasets/processed/
+    # Shares `processed/` with the tables above, which is how the bucket was laid
+    # out before this repository ever pushed to it. The cost is on `pull`, not on
+    # `push`: a download copies everything under a prefix into the one local
+    # directory the prefix maps to, so `data/processed` and `data/features` each
+    # end up with all twelve files. Nothing breaks — every reader opens files by
+    # name — but the retrain job transfers the 242 MB feature tables twice.
+    features: datasets/processed/
+    splits: training/
+    # The lookup tables the engine reads to answer a request: the serving
+    # catalogue and the two guest rankings. Kept out of `datasets/serving/`,
+    # which holds the web side's DynamoDB exports — one JSONL per table, named
+    # after the table rather than after anything this repository produces.
+    # Sharing the prefix would mean neither side could tell which files are
+    # theirs, and a `pull` would drag a 161 MB `users.jsonl` into data/serving.
+    serving: inference/
+    artifacts: models/
+    events: datasets/exports/   # interaction exports, one JSONL per run
+    reports: evaluation/
     # SageMaker model bundles, one `<version>/model.tar.gz` per deployed model.
     # Kept apart from `artifacts/` because the two have different lifetimes: an
     # artifact is what training produced, a bundle is what one endpoint is
     # serving, and rolling the endpoint back must not mean rewriting artifacts.
-    models: movie-recommender/dev/models/
+    models: models/bundles/
 
 # Local directories each prefix maps to. Kept explicit rather than derived from
 # configs/data_pipeline.yaml so a sync can never silently upload the wrong tree.
