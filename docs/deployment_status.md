@@ -1,4 +1,4 @@
-# Hiện trạng triển khai — cập nhật 2026-07-29
+# Hiện trạng triển khai — cập nhật 2026-07-30
 
 Tài liệu này ghi lại những gì đã thực sự chạy trên AWS và ai còn phải làm gì.
 Mọi con số ở đây lấy từ lần kiểm tra thật trên tài khoản, không phải ước lượng.
@@ -13,12 +13,13 @@ cá nhân.
 
 | | |
 |---|---|
-| Endpoint | `movie-rec-endpoint` — **dựng theo yêu cầu**, xem bên dưới |
+| Endpoint | `movie-rec-endpoint` — **dựng theo yêu cầu**, hiện đang tắt |
 | Region | `ap-southeast-1` |
-| Model | ALS `v1.0.1`, bundle sẵn trên S3 |
+| Model đang phục vụ | ALS `v0.0.0-202607301039` — do job retrain trên SageMaker thăng cấp ngày 30/07 |
 | Độ trễ đo thật | 129–161 ms mỗi request |
-| Bucket | `movie-recommendation-fcaj` |
+| Bucket | `movie-recommendation-fcaj` — 87 object, 2,3 GiB |
 | Bảng DynamoDB | 5 bảng `movie-rec-dev-*`, đã có dữ liệu |
+| Vòng lặp retrain | **đã chạy trọn vẹn trên AWS** — xem mục 12 |
 
 > [!IMPORTANT]
 > **Endpoint không để chạy thường trực.** Nó tính tiền theo giờ kể cả khi không
@@ -71,17 +72,27 @@ trường `scenario_applied`.
 
 ### S3 — `movie-recommendation-fcaj`
 
-Toàn bộ nằm dưới tiền tố `movie-recommender/dev/`:
+Cây tổ chức theo **giai đoạn vòng đời** ở gốc bucket. Bố cục chi tiết từng file
+kèm công dụng nằm ở [`S3_STRUCTURE.txt`](../S3_STRUCTURE.txt).
 
-| Prefix | Nội dung |
-|---|---|
-| `data/raw/` | CSV gốc Kaggle |
-| `data/processed/` | bảng đã làm sạch |
-| `data/features/` | feature nội dung, bảng interaction |
-| `data/splits/` | train / validation / test |
-| `data/serving/` | `movies_serving`, `popular_movies`, `top_rated` |
-| `artifacts/` | `collaborative/v1.0.0`, `v1.0.1`, `content_based/`, `LATEST.json` |
-| `models/v1.0.1/model.tar.gz` | bundle endpoint đang dùng |
+| Prefix | Nội dung | Số file |
+|---|---|---:|
+| `datasets/raw/` | CSV gốc Kaggle | 5 |
+| `datasets/processed/` | bảng đã làm sạch + feature | 12 |
+| `datasets/serving/` | export DynamoDB của phía web, model không đọc | 5 |
+| `datasets/exports/` | event xuất từ DynamoDB để retrain | 1 |
+| `training/` | train / validation / test | 3 |
+| `models/` | `collaborative/v1.0.0`, `v1.0.1`, `content_based/`, `eval/`, `LATEST.json` | 22 |
+| `models/bundles/<version>/` | `model.tar.gz` cho endpoint | 2 |
+| `inference/` | `movies_serving`, `popular_movies`, `top_rated_*` | 5 |
+| `evaluation/` | báo cáo JSON | 15 |
+| `logs/` | log chạy | 2 |
+
+> [!WARNING]
+> Trước 30/07 file này ghi mọi prefix nằm dưới `movie-recommender/dev/`.
+> **Tiền tố đó chưa bao giờ tồn tại trên bucket.** Hệ quả: `push` sẽ đẻ ra một cây
+> song song thứ hai, còn `pull` không tìm thấy gì và job retrain train trên dữ
+> liệu rỗng. Đã sửa `configs/aws.yaml` trỏ về cây thật.
 
 Đã bật: chặn public access (cả 4 cờ), versioning, và **lifecycle rule xoá version
 cũ sau 30 ngày**. Không có rule này thì mỗi lần push đẻ thêm một bản của mọi file.
@@ -206,23 +217,33 @@ AWS_DYNAMODB_INTERACTIONS_TABLE=movie-rec-dev-UserInteractions
 AWS_DYNAMODB_RECOMMENDATION_CACHE_TABLE=movie-rec-dev-RecommendationCache
 
 AWS_S3_BUCKET=movie-recommendation-fcaj
-AWS_S3_DATASET_PREFIX=movie-recommender/dev/data/raw/
-AWS_S3_PROCESSED_PREFIX=movie-recommender/dev/data/processed/
-AWS_S3_SERVING_PREFIX=movie-recommender/dev/data/serving/
-AWS_S3_TRAINING_PREFIX=movie-recommender/dev/data/splits/
-AWS_S3_MODEL_PREFIX=movie-recommender/dev/models/
-AWS_S3_OUTPUT_PREFIX=movie-recommender/dev/reports/
+AWS_S3_DATASET_PREFIX=datasets/raw/
+AWS_S3_PROCESSED_PREFIX=datasets/processed/
+AWS_S3_SERVING_PREFIX=inference/
+AWS_S3_TRAINING_PREFIX=training/
+AWS_S3_MODEL_PREFIX=models/bundles/
+AWS_S3_OUTPUT_PREFIX=evaluation/
 
 JWT_SECRET_KEY=          # tự sinh, tối thiểu 32 byte
 ```
+
+> [!WARNING]
+> Sáu giá trị prefix trên **đã đổi ngày 30/07**. Bản cũ ghi
+> `movie-recommender/dev/...`, một tiền tố chưa bao giờ tồn tại trên bucket. Nếu
+> backend đã copy bản cũ thì phải cập nhật lại, xem mục 12.2.
 
 Chỉ `AWS_S3_BUCKET` là bắt buộc — backend hiện không gọi S3, nó chỉ validate tên
 bucket lúc khởi động. Sáu prefix còn lại điền sẵn để cấu hình không phải đoán khi
 có thành phần đọc S3 thật.
 
-`reports/` chưa có object nào; nó xuất hiện sau lần retrain đầu tiên.
-`artifacts/` không có biến tương ứng vì backend không đọc tới — endpoint đã mang
-sẵn bản sao bên trong `model.tar.gz`.
+Lưu ý `AWS_S3_SERVING_PREFIX` trỏ `inference/` chứ không phải `datasets/serving/`.
+Hai chỗ đó khác nhau: `datasets/serving/` là export DynamoDB do phía web tạo, còn
+`inference/` là bảng tra cứu do pipeline ML sinh ra (`movies_serving`,
+`top_rated_*`).
+
+`models/` (artifact thô) không có biến tương ứng vì backend không đọc tới —
+endpoint đã mang sẵn bản sao bên trong `model.tar.gz`. `AWS_S3_MODEL_PREFIX` trỏ
+`models/bundles/` là nơi chứa các `model.tar.gz` theo version.
 
 Role hoặc user chạy backend cần thêm quyền `sagemaker:InvokeEndpoint`.
 
@@ -345,9 +366,9 @@ thật — lúc đó client nhận `ReadTimeoutError` chứ không phải lỗi 
 
 ### Phần model (Hiệp)
 
-* **Sửa `scripts/export_interactions.py`** để đọc đúng schema backend đang ghi.
-  Backend ghi bộ ba `(interaction_type, interaction_action, interaction_value)`;
-  model cần `event_type` + `value`. Quy đổi được 7/8 loại event:
+* ~~**Sửa `scripts/export_interactions.py`**~~ — **xong 30/07, đã chạy thật.**
+  Quét 9.217 item, xuất 9.160 event, loại đúng 57 thao tác gỡ rating/reaction.
+  Bảng quy đổi bên dưới đã hoạt động trên dữ liệu thật:
 
   | Backend | → model |
   |---|---|
@@ -361,8 +382,9 @@ thật — lúc đó client nhận `ReadTimeoutError` chứ không phải lỗi 
 
   Cũng phải ép `user_id` và `movie_id` từ chuỗi sang số.
 
-* Chờ AWS duyệt quota để chạy được job retrain — xem mục 9.
-* Đặt lịch chạy tự động sau khi đã chạy tay thành công ít nhất một lần.
+* ~~Chờ AWS duyệt quota~~ — **đã có quota, job retrain đã chạy xong 30/07.**
+* Đặt lịch chạy tự động — vẫn chưa làm. Chỉ nên làm sau khi có đủ event thật;
+  hiện 9.057/9.160 event là rating lịch sử seed lại, xem mục 12.
 
 ### Phần web (Ái)
 
@@ -437,11 +459,12 @@ Có một lỗi im lặng ở đây đáng biết: đọc sai tên trường th�
 `event_type: null`, file vẫn được ghi, và retrain **chạy trên dữ liệu rỗng mà
 không báo lỗi**. Đó là lý do bảng ánh xạ có test riêng.
 
-### Đang chờ: quota
+### Quota — đã xong
 
-Tài khoản hiện có quota **0** cho mọi loại máy chạy Processing Job và Training
-Job — chỉ endpoint là chạy được. Đã gửi yêu cầu tăng lên 2 cho
-`ml.m5.large` và `ml.m5.xlarge` ngày 2026-07-29, trạng thái `PENDING`.
+Yêu cầu tăng quota gửi ngày 2026-07-29 **đã được duyệt**. Job retrain đầu tiên
+chạy thành công ngày 30/07 trên `ml.m5.xlarge`, xem mục 12.
+
+Lệnh tra lại lịch sử yêu cầu nếu cần:
 
 ```bash
 aws service-quotas list-requested-service-quota-change-history \
@@ -542,3 +565,144 @@ python scripts/invoke_endpoint.py --demo
 ```
 
 Bước cuối là bắt buộc, không phải tuỳ chọn — xem lỗi 4 ở mục 7.
+
+---
+
+## 12. Nhật ký 2026-07-30
+
+Ghi lại theo thứ tự phát hiện, để lần sau nhìn vào biết chuyện gì đã xảy ra.
+
+### 12.1. Job retrain đầu tiên chạy trọn vẹn trên AWS
+
+```
+movie-rec-retrain-20260730-103746
+Status    : Completed
+Chạy      : 17:38:26 → 17:45:21  (6 phút 55 giây)
+Instance  : ml.m5.xlarge
+```
+
+Cổng kiểm duyệt **cho qua** và `LATEST.json` trên S3 chuyển từ `v1.0.1` sang
+`v0.0.0-202607301039`. Đây là lần đầu vòng lặp retrain khép kín trên cloud.
+
+Bundle tương ứng đã có sẵn: `models/bundles/v0.0.0-202607301039/model.tar.gz`.
+
+### 12.2. Prefix S3 trỏ vào chỗ không tồn tại
+
+`configs/aws.yaml` khai mọi prefix dưới `movie-recommender/dev/`, kèm ghi chú
+"RESOLVED 2026-07-29: tree đó đã có sẵn splits và content-based artifacts". Liệt
+kê bucket cho thấy **tiền tố đó không tồn tại**.
+
+Hậu quả nếu không phát hiện: `push` đẻ cây song song thứ hai, `pull` không thấy
+gì và job retrain train trên dữ liệu rỗng — mà **không báo lỗi**.
+
+Đã sửa: prefix trỏ về cây thật, và lấp các thư mục còn rỗng. Trước khi sửa, ba
+thứ sau **hoàn toàn chưa có trên S3**:
+
+* `training/` — không có split thì không train được
+* `models/` — không có artifact thì backend không serve được, và cổng kiểm duyệt
+  mất tác dụng vì không có model cũ để so
+* `top_rated_all.parquet`, `top_rated_by_genre.parquet` — thiếu thì kịch bản
+  khách vãng lai lỗi
+
+### 12.3. Luồng DynamoDB → S3 đã chạy thật
+
+```bash
+python scripts/export_interactions.py --upload
+```
+
+```
+Scan movie-rec-dev-UserInteractions  →  9.160 event
+                                        57 thao tác gỡ, đã loại
+→ s3://movie-recommendation-fcaj/datasets/exports/2026-07-30.jsonl  (1.009,3 KiB)
+```
+
+Đọc ngược từ S3 bằng chính hàm `retrain.py` dùng: ra lại đủ 9.160 event, đủ 5
+trường. Vòng ghi/đọc khép kín.
+
+### 12.4. Backend đang ghi thiếu `value` — 26 event bị vứt
+
+Chạy 103 event thật (2026) qua đúng bộ chấm điểm của model:
+
+```
+events_received : 103
+events_counted  :  71
+events_ignored  :  26   →  {'malformed_value': 26}
+```
+
+Chi tiết theo loại, nhóm event 2026:
+
+| Event | Tổng | Thiếu `value` |
+|---|---:|---:|
+| `watch` | 13 | **13 (100%)** |
+| `rating` | 41 | **13** |
+| `click` | 28 | 5 |
+| `like` | 7 | 0 |
+| `share` | 14 | 0 |
+
+Đối chiếu: **9.057 event lịch sử có `value` đủ 100%.** Nên đây không phải lỗi
+export mà là backend ghi thiếu. `watch` không có `value` thì không biết xem bao
+nhiêu phần trăm, mà ngưỡng là 50% → bị vứt toàn bộ.
+
+**Việc cho phía web:** khi ghi vào `movie-rec-dev-UserInteractions`, bắt buộc kèm
+`value` — `watch` là tỉ lệ đã xem (0–1), `rating` là số sao. `like`/`share`
+không cần và hiện đang làm đúng.
+
+### 12.5. Dữ liệu trong bảng gần như toàn là lịch sử seed lại
+
+| Nguồn | Số event |
+|---|---:|
+| Lịch sử 1996–2017 (MovieLens seed vào Dynamo) | 9.057 |
+| **Tương tác thật 2026** | **103** |
+
+103 event đó đến từ **đúng 1 user**. Nạp 9.057 event lịch sử vào `retrain.py` là
+nạp lại chính dữ liệu đã có trong tập train; chính sách `prefer_rating` khử trùng
+nên không hỏng, nhưng cũng không thêm gì. Đây là lý do chưa nên đặt lịch retrain
+tự động.
+
+### 12.6. SDK đổ file vào gốc bucket
+
+SageMaker SDK tự chọn chỗ upload nếu không được chỉ định:
+
+| Nguồn | Cái gì | Đi đâu |
+|---|---|---|
+| `PyTorchModel(...)` thiếu `code_location` | `sourcedir.tar.gz` | `s3://bucket/<model_name>/` |
+| `Session(...)` thiếu `default_bucket_prefix` | `source/sourcedir.tar.gz`, `runproc.sh` | `s3://bucket/<job_name>/` |
+
+Tám lần chạy từ 29/07 để lại tám thư mục ở gốc, chiếm **707,2 MB** dưới dạng
+version cũ và delete marker — vẫn tính tiền mà không hiện khi liệt kê thường.
+
+Đã sửa: `deploy_endpoint.py` truyền `code_location` trỏ vào
+`models/bundles/<version>/`, `sagemaker_retrain_job.py` đặt
+`default_bucket_prefix = "training/jobs"`. Đã xoá sạch 707,2 MB rác.
+
+Gốc bucket giờ chỉ còn 6 thư mục đúng thiết kế.
+
+### 12.7. Bẫy hay gặp: `load_env.ps1` chỉ có tác dụng trong một cửa sổ
+
+`deploy_endpoint.py` báo `Chưa có SageMaker execution role` dù sáng cùng ngày job
+vẫn chạy được. Nguyên nhân: `role_arn` để trống trong `configs/aws.yaml` (cố ý,
+không commit ARN vào git), giá trị thật nằm trong `.env`, mà `load_env.ps1` chỉ
+nạp vào **cửa sổ PowerShell đang chạy nó**.
+
+Mở cửa sổ mới thì phải chạy lại:
+
+```powershell
+.\load_env.ps1
+```
+
+Muốn khỏi phải nhớ thì đặt biến vĩnh viễn cho user, rồi mở cửa sổ mới:
+
+```powershell
+[Environment]::SetEnvironmentVariable("MOVIE_REC_SAGEMAKER_ROLE", "<arn>", "User")
+```
+
+Đừng điền thẳng vào `configs/aws.yaml` — file đó nằm trong git, ARN kèm account
+id sẽ lộ lên GitHub.
+
+### 12.8. Còn tồn trên S3
+
+* `models/content_based/.gitkeep` — file giữ chỗ của git bị đẩy lên nhầm
+* Bốn object 0 byte tên rỗng ở `datasets/exports/`, `evaluation/`, `inference/`,
+  `models/`, `training/` — marker thư mục do tạo cây thủ công để lại
+* `datasets/processed/` gánh cả `processed` lẫn `features`, nên `pull` tải trùng
+  242 MB bảng đặc trưng. Không hỏng, chỉ chậm.
